@@ -6,12 +6,11 @@ This application is built with tkinter, ttk, matplotlib, and numpy.
 
 ## **Key Features**
 
-* **Simulated EIS Measurement:** Runs a complete, simulated EIS test thread, including a mock OCP (Open Circuit Potential) wait time.  
-* **Realistic Fake Data:** Generates complex, multi-segment "fake" data by interpolating between key breakpoints in log-log space, precisely matching the shape of a target Bode plot.  
+* **Simulated EIS Measurement:** Runs a complete, simulated EIS test.
+* **Realistic Fake Data:** Generates "fake" data by interpolating between key breakpoints in log-log space, precisely matching the shape of a target Bode plot.  
 * **Interactive Plotting:**  
   * **Bode Plot:** Displays Impedance Magnitude |Z| vs. Frequency with a log-log scale.  
   * **Nyquist Plot:** Displays Z\_real vs. \-Z\_imaginary with a uniform, realistic semi-circular shape.  
-  * **Hover Tooltips:** Hovering the mouse over any data point on either plot reveals a tooltip with its exact (Freq, |Z|) or (Z\_real, \-Z\_imag) coordinates.  
 * **Visual Diagnosis:**  
   * The Bode plot features a permanent color bar on the left (Green, Yellow, Red) to indicate coating health based on impedance magnitude.  
   * The Output Log provides a text-based diagnosis (e.g., "Healthy Coating," "Coating needs monitoring," "Defective Coating") based on the low-frequency impedance value.  
