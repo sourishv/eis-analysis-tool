@@ -1,154 +1,184 @@
-Welcome! This file explains how to get the pi-eis-analyzer project running
-on your computer for the first time, and how to save your changes to GitHub.
+# How to use — pi-eis-analyzer
 
-This guide assumes you are on a Windows PC with VS Code already installed.
+Welcome! This guide shows how to get the pi-eis-analyzer project running on your Windows PC (using VS Code) and how to save your changes back to GitHub.
 
-PART 1: HOW TO RUN THE APP FOR THE FIRST TIME
+> Prerequisite: Visual Studio Code is already installed.
 
-This is a one-time setup process to get the project and all its
-dependencies installed on your computer.
+Table of contents
+- [Part 1 — Run the app for the first time](#part-1---run-the-app-for-the-first-time)
+  - [Step 1 — Install required software (Python & Git)](#step-1---install-required-software-python--git)
+  - [Step 2 — Get the project files (clone the repo)](#step-2---get-the-project-files-clone-the-repo)
+  - [Step 3 — Set up the virtual environment](#step-3---set-up-the-virtual-environment)
+  - [Step 4 — Install libraries & run the app](#step-4---install-libraries--run-the-app)
+- [Part 2 — Save & upload your changes (push to GitHub)](#part-2---save--upload-your-changes-push-to-github)
+  - [The 3-step process (add → commit → push)](#the-3-step-process-add--commit--push)
+  - [Pro tip: check what changed](#pro-tip-check-what-changed)
+- [Troubleshooting](#troubleshooting)
+- [Quick command reference](#quick-command-reference)
 
-STEP 1: INSTALL REQUIRED SOFTWARE (PYTHON & GIT)
+---
 
-1. Install Python (v3.11.9):
+## Part 1 — Run the app for the first time
 
-Go to: https://www.python.org/downloads/release/python-3119/
+This is a one-time setup process to install the project and its dependencies.
 
-Scroll down and click on "Windows installer (64-bit)".
+### Step 1 — Install required software (Python & Git)
 
-Run the installer file you just downloaded.
-
-IMPORTANT: On the first page of the installer, check the box at the bottom that says "Add python.exe to PATH". This is critical.
-
-Click "Install Now" and finish the installation.
+1. Install Python 3.11.9:
+   - Visit: https://www.python.org/downloads/release/python-3119/
+   - Download **Windows installer (64-bit)** and run it.
+   - IMPORTANT: On the first installer page, check **Add python.exe to PATH**.
+   - Click **Install Now** and finish.
 
 2. Install Git:
+   - Visit: https://git-scm.com/downloads
+   - Download and run the installer. Default options are fine.
 
-Go to: https://git-scm.com/downloads
+Why Git? Git is used to clone the repository from GitHub and to push your changes later.
 
-Download and run the installer. You can safely click "Next" through all the default options.
+3. Restart VS Code
+   - Close and re-open VS Code so it detects the newly installed tools.
 
-(Why? Git is the tool that downloads ("clones") the project from GitHub. It is required for Part 2 if you want to upload ("push") your own changes.)
+---
 
-3. Restart VS Code:
+### Step 2 — Get the project files (clone the repo)
 
-Completely close and re-open VS Code to make sure it finds the new software you just installed.
+1. Open a terminal in VS Code:  
+   Terminal → New Terminal
 
-STEP 2: GET THE PROJECT FILES (CLONE THE REPO)
-
-1. Open a Terminal in VS Code:
-
-At the top of the VS Code window, click Terminal > New Terminal.
-
-You will now have a command prompt (likely PowerShell) at the bottom of your screen.
-
-2. Navigate to where you store projects:
-
-Type cd (change directory) to where you want to store the project.
-
-Example: cd C:\Users\YourName\Documents\GitHub
+2. Change to the directory where you store projects, for example:
+   ```powershell
+   cd C:\Users\YourName\Documents\GitHub
+   ```
 
 3. Clone the project:
-
-Copy and paste the following command into your terminal and press Enter.
-
-git clone https://github.com/YourName/pi-eis-analyzer.git
-
-(Replace "YourName/pi-eis-analyzer.git" with your repository's actual URL)
+   ```bash
+   git clone https://github.com/YourName/pi-eis-analyzer.git
+   ```
+   Replace `https://github.com/YourName/pi-eis-analyzer.git` with the actual repository URL.
 
 4. Open the project in VS Code:
+   - File → Open Folder... → select the `pi-eis-analyzer` folder.
+   - If prompted with "Do you trust the authors...?", click **Yes**.
 
-In VS Code, go to File > Open Folder...
+Alternative (not recommended): If you prefer not to install Git and only want to run the app (no pushes), you can download the repository ZIP from GitHub (Code → Download ZIP) and extract it.
 
-Find and select the new pi-eis-analyzer folder that you just downloaded.
+---
 
-VS Code will reload and open the project.
+### Step 3 — Set up the virtual environment
 
-If it asks "Do you trust the authors...?", click "Yes".
+You only need to do this once per machine/project.
 
-(Alternative - Not Recommended):
-
-If you refuse to install Git and only want to run the app (never update it or push changes), you can go to the GitHub repo URL, click the green <> Code button, and select "Download ZIP". Unzip this file and open that folder in VS Code.
-
-STEP 3: SET UP THE VIRTUAL ENVIRONMENT
-
-You only need to do this once.
-
-1. Re-open the Terminal:
-
-Go to Terminal > New Terminal again. It should now be in your project folder.
+1. Open a terminal in the project folder (Terminal → New Terminal).
 
 2. Create the virtual environment:
-
-python -m venv .venv
-
-(This uses the Python 3.11.9 you installed)
+   ```powershell
+   python -m venv .venv
+   ```
 
 3. Activate the virtual environment:
+   ```powershell
+   .\.venv\Scripts\Activate.ps1
+   ```
+   After activation, your prompt should start with `(.venv)`.
 
-.\.venv\Scripts\Activate.ps1
-
-Your terminal prompt should now have (.venv) at the beginning.
-
-TROUBLESHOOTING (Permission Error):
-
-If you get a red error about "execution of scripts is disabled", run this one-time command and then try activating again:
-
+Troubleshooting: If you see an execution policy error (scripts disabled), run this one-time command in PowerShell and then try activation again:
+```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+```
 
-STEP 4: INSTALL LIBRARIES & RUN THE APP
+---
 
-1. Install all libraries:
+### Step 4 — Install libraries & run the app
 
-Make sure your venv is active ((.venv) is visible).
-
-pip install -r requirements.txt
+1. With the venv active, install requirements:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 2. Run the application:
+   ```bash
+   python app.py
+   ```
 
-python app.py
+The app should start. To run the app in the future, reactivate the venv (Step 3.3) and run `python app.py`.
 
-The app should now launch!
+---
 
-To run the app in the future: You only need to repeat STEP 3 (item 3, activate) and STEP 4 (item 2, run).
+## Part 2 — Save & upload your changes (push to GitHub)
 
-PART 2: HOW TO SAVE & UPLOAD YOUR CHANGES (PUSH TO GITHUB)
+This section assumes you installed Git and cloned the repo (Part 1, Step 2).
 
-This part requires you to have installed Git and used git clone in Step 2.
+The typical workflow: edit files → stage → commit → push.
 
-After you've made edits to the code, here is how you save them back to GitHub.
+### The 3-step process (add → commit → push)
 
-THE 3-STEP PROCESS (ADD, COMMIT, PUSH)
+1. Stage your changes (add):
+   ```bash
+   git add .
+   ```
+   The `.` stages all modified files.
 
-1. Stage Your Changes (Add):
+2. Commit your changes:
+   ```bash
+   git commit -m "A short message describing your change"
+   ```
+   Example:
+   ```bash
+   git commit -m "Updated the Bode plot labels"
+   ```
 
-In your VS Code terminal (with the venv active), type:
+3. Push to GitHub:
+   ```bash
+   git push
+   ```
+   The first time you push, GitHub may prompt you to log in.
 
-git add .
+### Pro tip: check what changed
 
-(The . means "add all files I have changed")
-
-2. Save Your Changes (Commit):
-
-This takes a "snapshot" of your staged files.
-
-git commit -m "A short message describing your change"
-
-Example: git commit -m "Updated the Bode plot labels"
-
-3. Upload Your Changes (Push):
-
-This sends your saved "commit" up to GitHub.
-
-git push
-
-Note: The first time you push, GitHub may ask you to log in.
-
-Pro-Tip: Check Your Work
-
-Before you add and commit, it's a good idea to see what you've changed.
-Run this command at any time:
-
+Before staging and committing, see what’s different:
+```bash
 git status
+```
+This shows modified, staged, and untracked files.
 
-It will show you a list of all the files you have modified.
+---
+
+## Troubleshooting
+
+- Virtual environment activation failure:
+  - Run PowerShell as administrator or use the `Set-ExecutionPolicy` command shown above.
+- Wrong Python version:
+  - Ensure `python --version` reports 3.11.9 (or the installed 3.11.x). If not, check PATH or the installer options.
+- pip install errors:
+  - Make sure the venv is active and you have internet access. For platform-specific build errors, read the error and install any missing system packages (e.g., build tools).
+- git push issues:
+  - If authentication fails, follow GitHub’s prompts to authenticate (PAT or browser login). Alternatively configure SSH.
+
+---
+
+## Quick command reference
+
+- Create venv:
+  ```bash
+  python -m venv .venv
+  ```
+- Activate venv (PowerShell):
+  ```powershell
+  .\.venv\Scripts\Activate.ps1
+  ```
+- Install dependencies:
+  ```bash
+  pip install -r requirements.txt
+  ```
+- Run app:
+  ```bash
+  python app.py
+  ```
+- Git basics:
+  ```bash
+  git add .
+  git commit -m "message"
+  git push
+  git status
+  ```
