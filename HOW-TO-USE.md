@@ -46,16 +46,16 @@ Why Git? Git is used to clone the repository from GitHub and to push your change
 1. Open a terminal in VS Code:  
    Terminal → New Terminal
 
-2. Change to the directory where you store projects, for example:
-   ```powershell
-   cd C:\Users\sourishv\Documents\GitHub
-   ```
+2.  Change to the directory where you store your projects (e.g., your Documents folder):
+    ```powershell
+    cd C:\Users\YourName\Documents
+    ```
+    *(You can change this path to any folder you like.)*
 
 3. Clone the project:
    ```bash
    git clone https://github.com/sourishv/eis-analysis-tool.git
    ```
-   Replace `https://github.com/YourName/eis-analysis-tool.git` with the actual repository URL.
 
 4. Open the project in VS Code:
    - File → Open Folder... → select the `eis-analysis-tool` folder.
