@@ -48,17 +48,17 @@ Why Git? Git is used to clone the repository from GitHub and to push your change
 
 2. Change to the directory where you store projects, for example:
    ```powershell
-   cd C:\Users\YourName\Documents\GitHub
+   cd C:\Users\sourishv\Documents\GitHub
    ```
 
 3. Clone the project:
    ```bash
-   git clone https://github.com/YourName/pi-eis-analyzer.git
+   git clone https://github.com/sourishv/eis-analysis-tool.git
    ```
-   Replace `https://github.com/YourName/pi-eis-analyzer.git` with the actual repository URL.
+   Replace `https://github.com/YourName/eis-analysis-tool.git` with the actual repository URL.
 
 4. Open the project in VS Code:
-   - File → Open Folder... → select the `pi-eis-analyzer` folder.
+   - File → Open Folder... → select the `eis-analysis-tool` folder.
    - If prompted with "Do you trust the authors...?", click **Yes**.
 
 Alternative (not recommended): If you prefer not to install Git and only want to run the app (no pushes), you can download the repository ZIP from GitHub (Code → Download ZIP) and extract it.
