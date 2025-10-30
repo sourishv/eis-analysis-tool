@@ -1,6 +1,6 @@
 # **Potentiostat EIS GUI (PC Test Harness)**
 
-This project is a Python-based PC application for simulating and visualizing Electrochemical Impedance Spectroscopy (EIS) data. It serves as a **PC test harness** for developing and refining the user interface and features before deploying the final application to a Raspberry Pi with a real potentiostat.
+This project is a Python-based PC application for simulating and visualizing Electrochemical Impedance Spectroscopy (EIS) data. It serves as a **PC testing tool** for developing and refining the user interface and features before deploying the final application to a Raspberry Pi with a real potentiostat.
 
 This application is built with tkinter, ttk, matplotlib, and numpy.
 
@@ -17,10 +17,6 @@ This application is built with tkinter, ttk, matplotlib, and numpy.
   * The Output Log provides a text-based diagnosis (e.g., "Healthy Coating," "Coating needs monitoring," "Defective Coating") based on the low-frequency impedance value.  
 * **Data Export:** Both the Nyquist and Bode plots can be exported and saved as high-quality .png, .jpg, or .pdf files.  
 * **Responsive UI:** Features a tabbed notebook interface to cleanly separate the measurement setup, plots, and output log. A simulated connection bar shows the device status.
-
-## **Screenshot**
-
-*\[A screenshot of the application's main window, showing the tabs and plots, would go here.\]*
 
 ## **Setup and Installation**
 
@@ -69,3 +65,7 @@ The ultimate goal of this project is to run on a Raspberry Pi. The next steps wi
 1. **Hardware Integration:** Replace the simulated connection and generate\_fake\_data function with the actual pypalmsens library to connect to the potentiostat via USB.  
 2. **Data Acquisition:** Call the real manager.measure() function and retrieve the *actual* data.  
 3. **Porting:** Transfer the pc\_potentiostat\_gui\_test.py script (renamed to app.py or similar) to the Raspberry Pi, install the dependencies, and run it in a full-screen or kiosk mode for the touchscreen.
+
+## **Screenshots**
+
+*\[A screenshot of the application's main window, showing the tabs and plots, would go here.\]*

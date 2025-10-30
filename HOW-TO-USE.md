@@ -106,7 +106,7 @@ pip install -r requirements.txt
 
 2. Run the application:
 
-python pc_testing_gui.py
+python app.py
 
 The app should now launch!
 
