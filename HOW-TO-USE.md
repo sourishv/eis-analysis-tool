@@ -1,6 +1,6 @@
-# How to use — pi-eis-analyzer
+# How to use — eis-analysis-tool
 
-Welcome! This guide shows how to get the pi-eis-analyzer project running on your Windows PC (using VS Code) and how to save your changes back to GitHub.
+Welcome! This guide shows how to get the eis-analysis-tool project running on your Windows PC (using VS Code) and how to save your changes back to GitHub.
 
 > Prerequisite: Visual Studio Code is already installed.
 
