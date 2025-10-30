@@ -1,4 +1,4 @@
-# **Potentiostat EIS GUI**
+# **Potentiostat EIS Software Analysis Tool**
 
 This project is a Python-based PC application for simulating and visualizing Electrochemical Impedance Spectroscopy (EIS) data. It serves as a **PC testing tool** for developing and refining the user interface and features before deploying the final application to a Raspberry Pi with a real potentiostat.
 
