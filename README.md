@@ -54,9 +54,9 @@ python app.py
 
 1. The application will launch and auto-connect to the "Mock Device."  
 2. All EIS parameters are pre-filled with test values. Click **"Run EIS Measurement"** to start the simulation.  
-3. The app will switch to the "Output Log" tab and show the process (OCP, scan, diagnosis).  
+3. The app will switch to the "Output Log" tab and show the process (scan, diagnosis).  
 4. When complete, the app will switch to the "Bode Plot" tab to display the results.  
-5. You can now switch between the "Nyquist Plot" and "Bode Plot" tabs, hover over data points, and use the "Save Plot" buttons to export the images.
+5. You can now switch between the "Nyquist Plot" and "Bode Plot" tabs, and use the "Save Plot" buttons to export the images.
 
 ## **Future Goals (Raspberry Pi Deployment)**
 
