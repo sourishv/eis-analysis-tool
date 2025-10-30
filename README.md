@@ -50,7 +50,7 @@ This project is intended to be run from a virtual environment.
 
 With your virtual environment active and packages installed, simply run the PC test script:
 
-python pc\_potentiostat\_gui\_test.py
+python app.py
 
 1. The application will launch and auto-connect to the "Mock Device."  
 2. All EIS parameters are pre-filled with test values. Click **"Run EIS Measurement"** to start the simulation.  
@@ -64,7 +64,7 @@ The ultimate goal of this project is to run on a Raspberry Pi. The next steps wi
 
 1. **Hardware Integration:** Replace the simulated connection and generate\_fake\_data function with the actual pypalmsens library to connect to the potentiostat via USB.  
 2. **Data Acquisition:** Call the real manager.measure() function and retrieve the *actual* data.  
-3. **Porting:** Transfer the pc\_potentiostat\_gui\_test.py script (renamed to app.py or similar) to the Raspberry Pi, install the dependencies, and run it in a full-screen or kiosk mode for the touchscreen.
+3. **Porting:** Transfer the app.py script to the Raspberry Pi, install the dependencies, and run it in a full-screen or kiosk mode for the touchscreen.
 
 ## **Screenshots**
 
