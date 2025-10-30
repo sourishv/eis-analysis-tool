@@ -73,7 +73,7 @@ class PalmSensApp:
         self.nyquist_canvas = FigureCanvasTkAgg(self.nyquist_fig, master=nyquist_tab)
         self.nyquist_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
         
-        # --- NEW: Export button for Nyquist ---
+        # --- Export button for Nyquist ---
         export_nyquist_btn = ttk.Button(nyquist_tab, text="Save Nyquist Plot", command=lambda: self.export_plot('nyquist'))
         export_nyquist_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5,0))
         
@@ -102,7 +102,7 @@ class PalmSensApp:
         self.bode_canvas = FigureCanvasTkAgg(self.bode_fig, master=bode_tab)
         self.bode_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
 
-        # --- NEW: Export button for Bode ---
+        # --- Export button for Bode ---
         export_bode_btn = ttk.Button(bode_tab, text="Save Bode Plot", command=lambda: self.export_plot('bode'))
         export_bode_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5,0))
 
@@ -179,7 +179,8 @@ class PalmSensApp:
         self.nyquist_ax.set_ylabel('-Z_imaginary (Ohm)') # Updated label
         self.nyquist_ax.set_title("Nyquist Plot")
         self.nyquist_ax.grid(True)
-        self.nyquist_fig.tight_layout()
+        # --- FIX: Replaced tight_layout() with subplots_adjust() ---
+        self.nyquist_fig.subplots_adjust(left=0.1, right=0.95, top=0.9, bottom=0.15)
         self.nyquist_canvas.draw()
 
     def init_bode_plot(self):
@@ -214,7 +215,8 @@ class PalmSensApp:
         # Make the color bar's own background transparent
         self.bode_cbar_ax.patch.set_alpha(0) 
         
-        self.bode_fig.tight_layout(rect=[0.05, 0, 1, 1])
+        # --- FIX: Removed the conflicting tight_layout() line ---
+        # self.bode_fig.tight_layout(rect=[0.05, 0, 1, 1]) <-- This line was removed
         self.bode_canvas.draw()
 
     # --- Plot Hover Logic ---
@@ -461,7 +463,7 @@ class PalmSensApp:
         except Exception as e:
             self.log_message(f"Failed to draw plots: {e}")
 
-    # --- NEW: Plot Export Function ---
+    # --- Plot Export Function ---
     def export_plot(self, plot_type):
         """Opens a 'Save As' dialog to export the specified plot."""
         
@@ -516,4 +518,3 @@ if __name__ == "__main__":
 
     root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
-
