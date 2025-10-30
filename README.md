@@ -21,35 +21,36 @@ This application is built with tkinter, ttk, matplotlib, and numpy.
 
 This project is intended to be run from a virtual environment.
 
-1. **Clone the repository:**  
-   git clone \[Your-Repository-URL\]  
-   cd \[Your-Repository-Name\]
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/sourishv/eis-analysis-tool.git
+    cd eis-analysis-tool
+    ```
 
-2. **Create and activate a virtual environment:**  
-   \# Create the venv  
-   python \-m venv .venv
+2.  **Create and activate a virtual environment:**
+    ```bash
+    # Create the venv
+    python -m venv .venv
 
-   \# Activate on Windows (PowerShell)  
-   .\\.venv\\Scripts\\Activate.ps1
+    # Activate on Windows (PowerShell)
+    .\.venv\Scripts\Activate.ps1
 
-   \# Activate on macOS/Linux  
-   source .venv/bin/activate
+    # Activate on macOS/Linux
+    source .venv/bin/activate
+    ```
 
-3. Install the required libraries:  
-   First, ensure you have a requirements.txt file. You can generate one from your working environment using:  
-   pip freeze \> requirements.txt
+3.  **Install the required libraries:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-   Then, anyone (including your future self on the Pi) can install the dependencies:  
-   pip install \-r requirements.txt
+## How to Run the App
 
-   *If you do not have a requirements.txt file, manually install the necessary packages:*  
-   pip install matplotlib numpy
+With your virtual environment active and packages installed, simply run the app:
 
-## **How to Run the Test App**
-
-With your virtual environment active and packages installed, simply run the PC test script:
-
+```bash
 python app.py
+```
 
 1. The application will launch and auto-connect to the "Mock Device."  
 2. All EIS parameters are pre-filled with test values. Click **"Run EIS Measurement"** to start the simulation.  
