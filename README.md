@@ -2,7 +2,7 @@
 
 This project is a Python-based PC application for simulating and visualizing Electrochemical Impedance Spectroscopy (EIS) data. It serves as a **PC testing tool** for developing and refining the user interface and features before deploying the final application to a Raspberry Pi with a real potentiostat.
 
-This application is built with tkinter, ttk, matplotlib, and numpy.
+This application is built with tkinter, matplotlib, and numpy.
 
 ## **Key Features**
 
