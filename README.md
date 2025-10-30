@@ -68,4 +68,10 @@ The ultimate goal of this project is to run on a Raspberry Pi. The next steps wi
 
 ## **Screenshots**
 
-*\[A screenshot of the application's main window, showing the tabs and plots, would go here.\]*
+<img width="891" height="725" alt="main_screen" src="https://github.com/user-attachments/assets/1109b487-f85d-4021-b370-b269951c07dc" />
+
+<img width="887" height="722" alt="bode" src="https://github.com/user-attachments/assets/8a963a24-4006-470a-942a-2e53384f2c91" />
+
+<img width="892" height="723" alt="nyquist" src="https://github.com/user-attachments/assets/b809d4be-8fbb-4337-9f3d-bf2f5633a7ef" />
+
+<img width="896" height="723" alt="output_log" src="https://github.com/user-attachments/assets/c11a8867-0b33-4a97-8474-0b416aad61e7" />
