@@ -4,11 +4,7 @@ This is a small PC testing GUI for Electrochemical Impedance Spectroscopy (EIS).
 It is intended to exercise the UI and plotting workflows on a desktop before
 moving the code to a Raspberry Pi and a real potentiostat.
 
-The current app (run with `python app.py`) is centered around loading EIS
-CSV files, plotting Nyquist and Bode views, exporting high-quality images,
-and showing a simple text diagnosis based on low-frequency impedance.
-
-Implemented with: tkinter, ttk, matplotlib, numpy, and pandas.
+This application is built with tkinter, ttk, matplotlib, and numpy.
 
 ## What changed vs earlier drafts
 
@@ -85,16 +81,11 @@ With the venv active:
 python app.py
 ```
 
-Behavior:
-
-- The app auto-starts a mock connection and enables the "Load EIS Data File"
-  button when the (simulated) device is connected.
-- Click `Load EIS Data File (.csv)` and select a CSV that matches the
-  required column names above.
-- The Output Log tab will show loading/diagnosis messages. When processing
-  completes the Bode and Nyquist tabs are updated and the app switches to
-  the Bode tab.
-- Use the "Save Nyquist Plot" / "Save Bode Plot" buttons to export images.
+1. The application will launch and auto-connect to the "Mock Device."  
+2. All EIS parameters are pre-filled with test values. Click **"Run EIS Measurement"** to start the simulation.  
+3. The app will switch to the "Output Log" tab and show the process (OCP, scan, diagnosis).  
+4. When complete, the app will switch to the "Bode Plot" tab to display the results.  
+5. You can now switch between the "Nyquist Plot" and "Bode Plot" tabs, hover over data points, and use the "Save Plot" buttons to export the images.
 
 ## Troubleshooting
 
