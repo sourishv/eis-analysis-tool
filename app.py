@@ -7,7 +7,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-class PalmSensApp:
+class EisAnalysisTool:
     def __init__(self, root):
         self.root = root
         self.root.title("PC Test - Potentiostat GUI")
@@ -429,7 +429,7 @@ class PalmSensApp:
 # --- Main execution ---
 if __name__ == "__main__":
     root = tk.Tk()
-    app = PalmSensApp(root)
+    app = EisAnalysisTool(root)
     
     def on_closing():
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
