@@ -1,77 +1,122 @@
-# **Potentiostat EIS Software Analysis Tool**
+# Potentiostat EIS Software Analysis Tool (PC test)
 
-This project is a Python-based PC application for simulating and visualizing Electrochemical Impedance Spectroscopy (EIS) data. It serves as a **PC testing tool** for developing and refining the user interface and features before deploying the final application to a Raspberry Pi with a real potentiostat.
+This is a small PC testing GUI for Electrochemical Impedance Spectroscopy (EIS).
+It is intended to exercise the UI and plotting workflows on a desktop before
+moving the code to a Raspberry Pi and a real potentiostat.
 
-This application is built with tkinter, ttk, matplotlib, and numpy.
+The current app (run with `python app.py`) is centered around loading EIS
+CSV files, plotting Nyquist and Bode views, exporting high-quality images,
+and showing a simple text diagnosis based on low-frequency impedance.
 
-## **Key Features**
+Implemented with: tkinter, ttk, matplotlib, numpy, and pandas.
 
-* **Simulated EIS Measurement:** Runs a complete, simulated EIS test.
-* **Realistic Fake Data:** Generates "fake" data by interpolating between key breakpoints in log-log space, precisely matching the shape of a target Bode plot.  
-* **Interactive Plotting:**  
-  * **Bode Plot:** Displays Impedance Magnitude |Z| vs. Frequency with a log-log scale.  
-  * **Nyquist Plot:** Displays Z\_real vs. \-Z\_imaginary with a uniform, realistic semi-circular shape.  
-* **Visual Diagnosis:**  
-  * The Bode plot features a permanent color bar on the left (Green, Yellow, Red) to indicate coating health based on impedance magnitude.  
-  * The Output Log provides a text-based diagnosis (e.g., "Healthy Coating," "Coating needs monitoring," "Defective Coating") based on the low-frequency impedance value.  
-* **Data Export:** Both the Nyquist and Bode plots can be exported and saved as high-quality .png, .jpg, or .pdf files.  
-* **Responsive UI:** Features a tabbed notebook interface to cleanly separate the measurement setup, plots, and output log. A simulated connection bar shows the device status.
+## What changed vs earlier drafts
 
-## **Setup and Installation**
+- The app now loads EIS data from a CSV file (no hardware measurement/simulation
+  button in this PC-test build).
+- The UI tabs are: `Load Measurement`, `Nyquist Plot`, `Bode Plot`, `Output Log`.
+- Plots are interactive (hover shows point info) and can be exported via
+  "Save Nyquist Plot" / "Save Bode Plot" buttons.
 
-This project is intended to be run from a virtual environment.
+## Key features
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/sourishv/eis-analysis-tool.git
-    cd eis-analysis-tool
-    ```
+- Load EIS data from CSV and plot:
+  - Nyquist: Z_real vs -Z_imaginary
+  - Bode (magnitude): |Z| vs Frequency (log-log)
+- Permanent color bar beside the Bode magnitude axis indicating coating health
+  bands (red / yellow / green).
+- Simple automated diagnosis based on the low-frequency |Z| value.
+- Export plots as PNG / JPG / PDF from the GUI.
 
-2.  **Create and activate a virtual environment:**
-    ```bash
-    # Create the venv
-    python -m venv .venv
+## Required CSV format
 
-    # Activate on Windows (PowerShell)
-    .\.venv\Scripts\Activate.ps1
+The app expects CSV files with these columns (exact header names required):
 
-    # Activate on macOS/Linux
-    source .venv/bin/activate
-    ```
+- `Frequency (Hz)`
+- `Z' (Ω)`   (real part)
+- `-Z'' (Ω)` (negative imaginary part as in many instrument exports)
+- `Z (Ω)`    (magnitude)
+- `-Phase (°)`
+- `Time (s)`
 
-3.  **Install the required libraries:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+The code computes Z_imag = -(`-Z'' (Ω)`) so the Nyquist plot uses `Z' (Ω)` vs
+`-Z'' (Ω)` (flipped sign internally). If columns are missing the app will log
+an error in the Output Log.
 
-## How to Run the App
+## Diagnosis thresholds
 
-With your virtual environment active and packages installed, simply run the app:
+The built-in diagnosis (displayed in the Output Log) uses the low-frequency
+magnitude value and the following thresholds:
 
-```bash
+- |Z| >= 1e7  → "Healthy Coating (Pass)"
+- |Z| >= 1e5  → "Coating needs monitoring (Caution)"
+- otherwise   → "Defective Coating, needs maintenance (Fail)"
+
+These values are simple heuristics for the PC test app and can be adjusted in
+`app.py::diagnose_coating()`.
+
+## Setup and installation
+
+1. Clone the repository:
+
+```powershell
+git clone https://github.com/sourishv/eis-analysis-tool.git
+cd eis-analysis-tool
+```
+
+2. Create and activate a virtual environment (PowerShell):
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+3. Install dependencies:
+
+```powershell
+pip install -r requirements.txt
+```
+
+## Run the application
+
+With the venv active:
+
+```powershell
 python app.py
 ```
 
-1. The application will launch and auto-connect to the "Mock Device."  
-2. All EIS parameters are pre-filled with test values. Click **"Run EIS Measurement"** to start the simulation.  
-3. The app will switch to the "Output Log" tab and show the process (OCP, scan, diagnosis).  
-4. When complete, the app will switch to the "Bode Plot" tab to display the results.  
-5. You can now switch between the "Nyquist Plot" and "Bode Plot" tabs, hover over data points, and use the "Save Plot" buttons to export the images.
+Behavior:
 
-## **Future Goals (Raspberry Pi Deployment)**
+- The app auto-starts a mock connection and enables the "Load EIS Data File"
+  button when the (simulated) device is connected.
+- Click `Load EIS Data File (.csv)` and select a CSV that matches the
+  required column names above.
+- The Output Log tab will show loading/diagnosis messages. When processing
+  completes the Bode and Nyquist tabs are updated and the app switches to
+  the Bode tab.
+- Use the "Save Nyquist Plot" / "Save Bode Plot" buttons to export images.
 
-The ultimate goal of this project is to run on a Raspberry Pi. The next steps will involve:
+## Troubleshooting
 
-1. **Hardware Integration:** Replace the simulated connection and generate\_fake\_data function with the actual pypalmsens library to connect to the potentiostat via USB.  
-2. **Data Acquisition:** Call the real manager.measure() function and retrieve the *actual* data.  
-3. **Porting:** Transfer the app.py script to the Raspberry Pi, install the dependencies, and run it in a full-screen or kiosk mode for the touchscreen.
+- Missing columns: the Output Log will show which required columns are not
+  present. Make sure the CSV headers match exactly.
+- No plots / blank: verify the CSV contains numeric data and that the venv is
+  active so required packages (pandas, numpy, matplotlib) are available.
+- Activation errors on Windows: when creating/activating `.venv` in PowerShell
+  you may need to run:
 
-## **Screenshots**
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+```
 
-<img width="891" height="725" alt="main_screen" src="https://github.com/user-attachments/assets/1109b487-f85d-4021-b370-b269951c07dc" />
+## Exporting plots
 
-<img width="887" height="722" alt="bode" src="https://github.com/user-attachments/assets/8a963a24-4006-470a-942a-2e53384f2c91" />
+- Use the save buttons on each plot tab; supported formats: PNG, JPG, PDF.
+- Images are saved at 300 DPI by default.
 
-<img width="892" height="723" alt="nyquist" src="https://github.com/user-attachments/assets/b809d4be-8fbb-4337-9f3d-bf2f5633a7ef" />
+## Future work / Raspberry Pi goals
 
-<img width="896" height="723" alt="output_log" src="https://github.com/user-attachments/assets/c11a8867-0b33-4a97-8474-0b416aad61e7" />
+- Replace the mock connection and CSV workflow with real hardware calls
+  (for example, pypalmsens or other potentiostat libraries).
+- Add a reproducible dependency lock (e.g., `requirements.lock` or `pip-tools`).
+- Improve diagnosis algorithms and add unit tests for data parsing & plotting.
