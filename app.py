@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 import threading
 import time
+import os
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
@@ -23,6 +24,8 @@ class EisAnalysisTool:
         style.configure("TNotebook.Tab", font=("Helvetica", 11, "bold"), padding=[10, 5])
         style.configure("Status.TLabel", font=("Helvetica", 12, "italic"))
         style.configure("Connect.TButton", font=("Helvetica", 10), padding=5)
+        # Progressbar style with green fill for determinate mode
+        style.configure("Green.Horizontal.TProgressbar", troughcolor='white', background='#4CAF50')
 
         # --- Connection Status Frame ---
         connect_frame = ttk.Frame(root, relief="groove", borderwidth=2)
@@ -37,7 +40,7 @@ class EisAnalysisTool:
 
         self.status_label = ttk.Label(
             connect_frame, 
-            text="Status: Disconnected (Mock)", 
+            text="Status: Disconnected", 
             foreground="red", 
             style="Status.TLabel"
         )
@@ -46,23 +49,50 @@ class EisAnalysisTool:
         # --- Main Control Area (using a Notebook/Tabs) ---
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        # Shared progress variable for progress bars (defined before any bar uses it)
+        self.progress_var = tk.DoubleVar(value=0.0)
 
         # --- Tab 1: Load Measurement ---
         self.eis_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.eis_frame, text='Load Measurement') # <-- Renamed Tab
+        self.notebook.add(self.eis_frame, text='Measurement Setup') # <-- Renamed Tab
 
         # --- NEW: Load Data Button ---
         # The parameter fields have been removed.
         load_frame = ttk.Frame(self.eis_frame)
         load_frame.pack(expand=True)
-        
-        self.load_data_btn = ttk.Button(
-            load_frame, 
-            text="Load EIS Data File (.csv)", 
-            command=self.start_load_data_thread, 
+
+        # --- Editable EIS parameter fields ---
+        params = [
+            ("Start Frequency (Hz)", "1e5"),
+            ("End Frequency (Hz)", "1e-1"),
+            ("Voltage Amplitude (mV)", "50"),
+            ("Points per Decade", "5"),
+        ]
+
+        self.param_vars = {}
+        params_frame = ttk.Frame(load_frame)
+        params_frame.pack(pady=20)
+
+        for i, (label_text, default) in enumerate(params):
+            lbl = ttk.Label(params_frame, text=label_text)
+            lbl.grid(row=i, column=0, sticky="e", padx=(0,8), pady=4)
+            var = tk.StringVar(value=default)
+            ent = ttk.Entry(params_frame, textvariable=var, width=20)
+            ent.grid(row=i, column=1, sticky="w", pady=4)
+            self.param_vars[label_text] = var
+
+        # Run Test button - uses the CSV in project directory and streams data
+        self.run_test_btn = ttk.Button(
+            load_frame,
+            text="Run Test",
+            command=self.start_run_test_thread,
             state="disabled"
         )
-        self.load_data_btn.pack(pady=50, ipady=10, ipadx=10)
+        self.run_test_btn.pack(pady=(10,40), ipady=8, ipadx=10)
+
+        # Small label to show streaming progress
+        self.load_progress_lbl = ttk.Label(load_frame, text="No test running")
+        self.load_progress_lbl.pack()
         # --- END OF CHANGES TO TAB 1 ---
 
         # --- Tab 2: Nyquist Plot ---
@@ -73,10 +103,12 @@ class EisAnalysisTool:
         self.nyquist_canvas = FigureCanvasTkAgg(self.nyquist_fig, master=nyquist_tab)
         self.nyquist_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
         
-        export_nyquist_btn = ttk.Button(nyquist_tab, text="Save Nyquist Plot", command=lambda: self.export_plot('nyquist'))
-        export_nyquist_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5,0))
-        
+        self.export_nyquist_btn = ttk.Button(nyquist_tab, text="Save Nyquist Plot", command=lambda: self.export_plot('nyquist'))
+        self.export_nyquist_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5,0))
+
         self.nyquist_ax.plot_data = ([], []) 
+        self.nyquist_line = None
+        self.nyquist_diag_text = None
         
         # --- Tab 3: Bode Plot (Magnitude Only) ---
         bode_tab = ttk.Frame(self.notebook)
@@ -90,15 +122,23 @@ class EisAnalysisTool:
         self.bode_ax_mag.patch.set_alpha(0) 
         self.bode_ax_mag.plot_data = ([], []) 
 
+        self.bode_line = None
+        self.bode_diag_text = None
+
         self.bode_canvas = FigureCanvasTkAgg(self.bode_fig, master=bode_tab)
         self.bode_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
 
-        export_bode_btn = ttk.Button(bode_tab, text="Save Bode Plot", command=lambda: self.export_plot('bode'))
-        export_bode_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5,0))
+        self.export_bode_btn = ttk.Button(bode_tab, text="Save Bode Plot", command=lambda: self.export_plot('bode'))
+        self.export_bode_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5,0))
 
         # --- Tab 4: Output Log ---
         log_tab = ttk.Frame(self.notebook)
         self.notebook.add(log_tab, text='Output Log')
+        # Progress bar shown while a test is running
+        self.progress_var = tk.DoubleVar(value=0.0)
+        self.progress_bar = ttk.Progressbar(log_tab, orient='horizontal', mode='determinate', variable=self.progress_var, maximum=100)
+        self.progress_bar.pack(fill='x', padx=5, pady=(5,3))
+
         self.output_text = scrolledtext.ScrolledText(log_tab, height=10, state="disabled", font=("Courier New", 10))
         self.output_text.pack(fill="both", expand=True, padx=5, pady=5)
 
@@ -131,24 +171,24 @@ class EisAnalysisTool:
         """Simulates starting a connection."""
         self.connect_btn.config(state="disabled")
         self.disconnect_btn.config(state="disabled")
-        self.load_data_btn.config(state="disabled") # <-- CHANGED
-        self.status_label.config(text="Status: Connecting... (Mock)", foreground="orange")
+        self.run_test_btn.config(state="disabled") # <-- CHANGED
+        self.status_label.config(text="Status: Connecting...", foreground="orange")
         self.root.after(1000, self.simulate_connection)
 
     def simulate_connection(self):
         """Simulates a successful connection."""
-        self.status_label.config(text="Status: Connected (Mock Device)", foreground="green")
+        self.status_label.config(text="Status: Connected", foreground="green")
         self.disconnect_btn.config(state="normal")
-        self.load_data_btn.config(state="normal") # <-- CHANGED
-        self.log_message("Mock device connected. Ready to load data.")
+        self.run_test_btn.config(state="normal") # <-- CHANGED
+        self.log_message("Device connected. Ready to load data.")
 
     def simulate_disconnect(self):
         """Simulates a disconnect."""
         self.connect_btn.config(state="normal")
         self.disconnect_btn.config(state="disabled")
-        self.load_data_btn.config(state="disabled") # <-- CHANGED
-        self.status_label.config(text="Status: Disconnected (Mock)", foreground="red")
-        self.log_message("Mock device disconnected.")
+        self.run_test_btn.config(state="disabled") # <-- CHANGED
+        self.status_label.config(text="Status: Disconnected", foreground="red")
+        self.log_message("Device disconnected.")
 
     # --- Plotting Initialization ---
 
@@ -271,21 +311,8 @@ class EisAnalysisTool:
         Runs the file dialog on the main thread, then starts the
         processing in a new thread.
         """
-        self.load_data_btn.config(state="disabled")
-        self.notebook.select(self.notebook.tabs()[-1]) # Switch to log
-
-        filepath = filedialog.askopenfilename(
-            title="Select EIS Data File",
-            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")]
-        )
-        
-        if not filepath:
-            self.log_message("File load cancelled.")
-            self.load_data_btn.config(state="normal")
-            return
-            
-        # Start the file processing in a separate thread
-        threading.Thread(target=self.process_data_file, args=(filepath,), daemon=True).start()
+        # Deprecated: replaced by Run Test streaming. Keep for backward compatibility.
+        self.log_message("Use 'Run Test' to stream data from the built-in CSV.")
 
     def process_data_file(self, filepath):
         """
@@ -327,15 +354,18 @@ class EisAnalysisTool:
             # Pass the magnitude and frequency data directly
             diagnosis_result = self.diagnose_coating(z_mag, data['frequency'])
             self.log_message(f"Diagnosis: {diagnosis_result}")
-            
-            # --- Draw Plots (on main thread) ---
+
+            # --- Draw full Plots (on main thread) ---
             self.root.after(0, self.draw_plots, data)
 
         except Exception as e:
             self.log_message(f"Error processing file: {e}")
         finally:
-            # Re-enable the button from the main thread
-            self.root.after(0, self.load_data_btn.config, {"state": "normal"})
+            # Re-enable the run test button if this legacy path was used
+            try:
+                self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+            except Exception:
+                pass
 
     def diagnose_coating(self, z_mag_data, freq_data):
         """Analyzes impedance data to provide a coating diagnosis."""
@@ -385,6 +415,250 @@ class EisAnalysisTool:
 
         except Exception as e:
             self.log_message(f"Failed to draw plots: {e}")
+
+    # --- New: Streaming load for Run Test ---
+    def start_run_test_thread(self):
+        """Starts streaming the built-in CSV over the sample time."""
+        # Disable button and switch to log
+        self.run_test_btn.config(state="disabled")
+        # Show the Bode plot while streaming
+        try:
+            self.notebook.select(self.notebook.tabs()[2])
+        except Exception:
+            # fallback to last tab if indexing fails
+            self.notebook.select(self.notebook.tabs()[-1])
+
+        filepath = os.path.join(os.path.dirname(__file__), "11_12_25_test5.csv")
+        # Create shared progress bar in the bode tab above the save button
+        try:
+            bode_tab_widget = self.notebook.nametowidget(self.notebook.tabs()[2])
+            # If a previous shared widget exists, remove it
+            try:
+                if hasattr(self, 'shared_progress_frame') and self.shared_progress_frame.winfo_exists():
+                    self.shared_progress_frame.destroy()
+            except Exception:
+                pass
+
+            self.shared_progress_frame = ttk.Frame(bode_tab_widget)
+            # pack it before the save button so it appears above
+            self.shared_progress = ttk.Progressbar(self.shared_progress_frame, style='Green.Horizontal.TProgressbar', orient='horizontal', mode='determinate', variable=self.progress_var, maximum=100)
+            self.shared_progress.pack(side='left', fill='x', expand=True, padx=(0,8))
+            self.shared_progress_label = ttk.Label(self.shared_progress_frame, text='0%')
+            self.shared_progress_label.pack(side='right')
+            # Insert above the save button
+            try:
+                self.shared_progress_frame.pack(side='bottom', fill='x', padx=10, pady=(6,2), before=self.export_bode_btn)
+            except Exception:
+                # fallback: pack then repack save button below
+                self.shared_progress_frame.pack(side='bottom', fill='x', padx=10, pady=(6,2))
+                try:
+                    self.export_bode_btn.pack_forget()
+                    self.export_bode_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0,0))
+                except Exception:
+                    pass
+        except Exception:
+            # If any failure, just continue without visual shared bar
+            pass
+
+        threading.Thread(target=self.stream_load_data, args=(filepath,), daemon=True).start()
+
+    def stream_load_data(self, filepath):
+        """Reads CSV then streams data points progressively over the sample time."""
+        try:
+            self.log_message(f"Starting test using {filepath}")
+            if not os.path.exists(filepath):
+                self.log_message("ERROR: CSV file not found in project directory.")
+                self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+                return
+
+            df = pd.read_csv(filepath)
+
+            required_cols = {'Frequency (Hz)', "Z' (Ω)", "-Z'' (Ω)", "Z (Ω)", "-Phase (°)", "Time (s)"}
+            if not required_cols.issubset(df.columns):
+                self.log_message("ERROR: CSV file is missing required columns for streaming test.")
+                self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+                return
+
+            freq = df['Frequency (Hz)'].to_numpy()
+            z_real = df["Z' (Ω)"].to_numpy()
+            z_imag_neg = df["-Z'' (Ω)"].to_numpy()
+            z_imag = -z_imag_neg
+
+            n = len(freq)
+            # Streaming duration is fixed at 10 seconds total
+            total_time = 10.0
+            interval = total_time / max(n, 1)
+
+            # Stream points
+            x_buf = []
+            yr_buf = []
+            yi_buf = []
+
+            for i in range(n):
+                x_buf.append(freq[i])
+                yr_buf.append(z_real[i])
+                yi_buf.append(z_imag[i])
+
+                # Update progress label on main thread
+                percent = (i+1) / n * 100.0
+                self.root.after(0, self.load_progress_lbl.config, {"text": f"Loading: {i+1}/{n} points"})
+                # Update progress variable
+                self.root.after(0, self.progress_var.set, percent)
+                # Update shared progress label if present
+                try:
+                    self.root.after(0, self.shared_progress_label.config, {"text": f"{percent:.0f}%"})
+                except Exception:
+                    pass
+
+                # Update plots with current subset
+                self.root.after(0, self.update_plots_incremental, np.array(x_buf), np.array(yr_buf), np.array(yi_buf))
+
+                time.sleep(interval)
+
+            self.log_message("Test complete. Full data loaded.")
+            # Determine coating health based on the last impedance magnitude
+            try:
+                # Full magnitude using original arrays
+                full_z_mag = np.sqrt(z_real**2 + z_imag**2)
+                diagnosis_result = self.diagnose_coating(full_z_mag, freq)
+                self.log_message(f"Diagnosis: {diagnosis_result}")
+                # Show diagnosis visually on plots
+                self.root.after(0, self.show_diagnosis_on_plots, diagnosis_result)
+            except Exception as e:
+                self.log_message(f"Diagnosis failed: {e}")
+            finally:
+                # destroy shared progress UI if present
+                try:
+                    if hasattr(self, 'shared_progress_frame') and self.shared_progress_frame.winfo_exists():
+                        self.root.after(0, self.shared_progress_frame.destroy)
+                except Exception:
+                    pass
+            # Re-enable button and reset progress
+            self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+            self.root.after(0, self.load_progress_lbl.config, {"text": "Test finished"})
+            self.root.after(0, self.progress_var.set, 100.0)
+            try:
+                self.root.after(0, self.shared_progress_label.config, {"text": "100%"})
+            except Exception:
+                pass
+
+        except Exception as e:
+            self.log_message(f"Error streaming test data: {e}")
+            self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+            self.root.after(0, self.progress_var.set, 0.0)
+            try:
+                self.root.after(0, self.shared_progress_label.config, {"text": "0%"})
+            except Exception:
+                pass
+
+    def update_plots_incremental(self, freq_subset, z_real_subset, z_imag_subset):
+        """Update Nyquist and Bode plots with partial data during streaming."""
+        try:
+            z_mag = np.sqrt(z_real_subset**2 + z_imag_subset**2)
+            z_imag_neg = -z_imag_subset
+
+            # --- Nyquist: create or update a persistent Line2D to avoid clearing the axes ---
+            if self.nyquist_line is None:
+                # create the initial line on existing axes (axes already initialized in init_nyquist_plot)
+                (self.nyquist_line,) = self.nyquist_ax.plot(z_real_subset, z_imag_neg, 'o-', markersize=4, color='blue')
+                self.nyquist_ax.plot_data = (z_real_subset, z_imag_neg)
+                try:
+                    self.nyquist_ax.axis('equal')
+                except Exception:
+                    pass
+            else:
+                self.nyquist_line.set_data(z_real_subset, z_imag_neg)
+                self.nyquist_ax.plot_data = (z_real_subset, z_imag_neg)
+                # update view limits without reinitializing the axes
+                try:
+                    self.nyquist_ax.relim()
+                    self.nyquist_ax.autoscale_view()
+                except Exception:
+                    pass
+            self.nyquist_canvas.draw_idle()
+
+            # --- Bode: update persistent line on log-scaled axes ---
+            safe_freq = np.where(freq_subset <= 0, 1e-6, freq_subset)
+            if self.bode_line is None:
+                (self.bode_line,) = self.bode_ax_mag.plot(safe_freq, z_mag, 'o-', markersize=4, color='blue', zorder=10)
+                self.bode_ax_mag.plot_data = (safe_freq, z_mag)
+            else:
+                # update data in-place
+                self.bode_line.set_xdata(safe_freq)
+                self.bode_line.set_ydata(z_mag)
+                self.bode_ax_mag.plot_data = (safe_freq, z_mag)
+                try:
+                    self.bode_ax_mag.relim()
+                    self.bode_ax_mag.autoscale_view()
+                except Exception:
+                    pass
+            self.bode_canvas.draw_idle()
+
+        except Exception as e:
+            self.log_message(f"Plot update failed during streaming: {e}")
+
+    def show_diagnosis_on_plots(self, diagnosis_text):
+        """Display the diagnosis on both Nyquist and Bode plots with a colored badge."""
+        try:
+            # Decide color based on keywords
+            txt = diagnosis_text.lower()
+            if 'healthy' in txt or 'pass' in txt:
+                face = '#4CAF50'  # green
+                fg = 'white'
+            elif 'monitor' in txt or 'caution' in txt or 'medium' in txt:
+                face = '#FFB300'  # amber
+                fg = 'black'
+            else:
+                face = '#E53935'  # red
+                fg = 'white'
+
+            # Prepare display text (shortened)
+            short = diagnosis_text
+
+            # Nyquist: place in upper-left corner
+            try:
+                if self.nyquist_diag_text is None:
+                    self.nyquist_diag_text = self.nyquist_ax.text(
+                        0.12, 0.95, short,
+                        transform=self.nyquist_ax.transAxes,
+                        fontsize=12, fontweight='bold', color=fg,
+                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor=face, alpha=0.9)
+                    )
+                else:
+                    self.nyquist_diag_text.set_text(short)
+                    self.nyquist_diag_text.set_bbox(dict(boxstyle='round', facecolor=face, alpha=0.9))
+                    self.nyquist_diag_text.set_color(fg)
+            except Exception:
+                pass
+
+            # Bode: place in upper-left corner
+            try:
+                if self.bode_diag_text is None:
+                    self.bode_diag_text = self.bode_ax_mag.text(
+                        0.12, 0.95, short,
+                        transform=self.bode_ax_mag.transAxes,
+                        fontsize=12, fontweight='bold', color=fg,
+                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor=face, alpha=0.9)
+                    )
+                else:
+                    self.bode_diag_text.set_text(short)
+                    self.bode_diag_text.set_bbox(dict(boxstyle='round', facecolor=face, alpha=0.9))
+                    self.bode_diag_text.set_color(fg)
+            except Exception:
+                pass
+
+            # Redraw canvases
+            try:
+                self.nyquist_canvas.draw_idle()
+            except Exception:
+                pass
+            try:
+                self.bode_canvas.draw_idle()
+            except Exception:
+                pass
+
+        except Exception as e:
+            self.log_message(f"Failed to display diagnosis on plots: {e}")
 
     # --- Plot Export Function (Unchanged) ---
     def export_plot(self, plot_type):
