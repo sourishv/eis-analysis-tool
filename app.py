@@ -105,6 +105,11 @@ class EisAnalysisTool:
         self.stop_requested = False
         self.callback_debug_count = 0
         self.last_plot_update_time = 0  # Throttle plot updates (milliseconds)
+        self.latest_plot_data = {
+            'frequency': np.array([]),
+            'z_real': np.array([]),
+            'z_imag': np.array([]),
+        }
 
         # --- Tab 1: Load Measurement ---
         self.eis_frame = ttk.Frame(self.notebook, style="Card.TFrame")
@@ -172,7 +177,7 @@ class EisAnalysisTool:
         self.nyquist_canvas = FigureCanvasTkAgg(self.nyquist_fig, master=nyquist_tab)
         self.nyquist_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
         
-        self.export_nyquist_btn = ttk.Button(nyquist_tab, text="Save Nyquist Plot", style="Secondary.TButton", command=lambda: self.export_plot('nyquist'))
+        self.export_nyquist_btn = ttk.Button(nyquist_tab, text="Export Nyquist CSV", style="Secondary.TButton", command=lambda: self.export_plot('nyquist'))
         self.export_nyquist_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
 
         self.nyquist_ax.plot_data = ([], []) 
@@ -197,7 +202,7 @@ class EisAnalysisTool:
         self.bode_canvas = FigureCanvasTkAgg(self.bode_fig, master=bode_tab)
         self.bode_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
 
-        self.export_bode_btn = ttk.Button(bode_tab, text="Save Bode Plot", style="Secondary.TButton", command=lambda: self.export_plot('bode'))
+        self.export_bode_btn = ttk.Button(bode_tab, text="Export Bode CSV", style="Secondary.TButton", command=lambda: self.export_plot('bode'))
         self.export_bode_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
 
         # --- Tab 4: Output Log ---
@@ -631,6 +636,11 @@ class EisAnalysisTool:
     def draw_plots(self, data):
         try:
             freq, z_real, z_imag = data['frequency'], data['z_real'], data['z_imag']
+            self.latest_plot_data = {
+                'frequency': np.asarray(freq),
+                'z_real': np.asarray(z_real),
+                'z_imag': np.asarray(z_imag),
+            }
             z_mag = np.sqrt(z_real**2 + z_imag**2)
             z_imag_neg = -z_imag
             
@@ -1138,6 +1148,11 @@ class EisAnalysisTool:
     def update_plots_incremental(self, freq_subset, z_real_subset, z_imag_subset):
         """Update Nyquist and Bode plots with partial data during streaming."""
         try:
+            self.latest_plot_data = {
+                'frequency': np.asarray(freq_subset),
+                'z_real': np.asarray(z_real_subset),
+                'z_imag': np.asarray(z_imag_subset),
+            }
             z_mag = np.sqrt(z_real_subset**2 + z_imag_subset**2)
             z_imag_neg = -z_imag_subset
 
@@ -1244,45 +1259,61 @@ class EisAnalysisTool:
         except Exception as e:
             self.log_message(f"Failed to display diagnosis on plots: {e}")
 
-    # --- Plot Export Function (Unchanged) ---
+    # --- Plot Export Function ---
     def export_plot(self, plot_type):
-        """Opens a 'Save As' dialog to export the specified plot."""
-        
+        """Opens a 'Save As' dialog to export Nyquist/Bode plotted data as CSV."""
+
+        freq = np.asarray(self.latest_plot_data.get('frequency', np.array([])))
+        z_real = np.asarray(self.latest_plot_data.get('z_real', np.array([])))
+        z_imag = np.asarray(self.latest_plot_data.get('z_imag', np.array([])))
+        if freq.size == 0 and z_real.size == 0:
+            self.log_message("No plot data available to export.")
+            messagebox.showwarning("No Data", "No plot data available to export.")
+            return
+
         if plot_type == 'nyquist':
-            fig_to_save = self.nyquist_fig
-            default_name = "nyquist_plot.png"
-            dialog_title = "Save Nyquist Plot As..."
+            z_imag_neg = -z_imag
+            export_df = pd.DataFrame({
+                "Z_real (Ohm)": z_real,
+                "-Z_imaginary (Ohm)": z_imag_neg,
+            })
+            if freq.size == z_real.size:
+                export_df.insert(0, "Frequency (Hz)", freq)
+            default_name = "nyquist_plot.csv"
+            dialog_title = "Export Nyquist CSV As..."
         elif plot_type == 'bode':
-            fig_to_save = self.bode_fig
-            default_name = "bode_plot.png"
-            dialog_title = "Save Bode Plot As..."
+            z_mag = np.sqrt(z_real**2 + z_imag**2)
+            export_df = pd.DataFrame({
+                "Frequency (Hz)": freq,
+                "|Z| (Ohm)": z_mag,
+            })
+            default_name = "bode_plot.csv"
+            dialog_title = "Export Bode CSV As..."
         else:
             return
-        
+
         filetypes = [
-            ('PNG Image', '*.png'),
-            ('JPEG Image', '*.jpg'),
-            ('PDF Document', '*.pdf'),
+            ('CSV File', '*.csv'),
             ('All Files', '*.*')
         ]
-        
+
         filepath = filedialog.asksaveasfilename(
             title=dialog_title,
             initialfile=default_name,
-            defaultextension=".png",
+            defaultextension=".csv",
             filetypes=filetypes
         )
-        
+
         if not filepath:
             self.log_message("Export cancelled.")
             return
-        
+
         try:
-            fig_to_save.savefig(filepath, dpi=300, bbox_inches='tight')
-            self.log_message(f"Plot saved to: {filepath}")
+            export_df.to_csv(filepath, index=False)
+            self.log_message(f"CSV exported to: {filepath}")
         except Exception as e:
-            self.log_message(f"Error saving plot: {e}")
-            messagebox.showerror("Save Error", f"Failed to save plot:\n{e}")
+            self.log_message(f"Error exporting CSV: {e}")
+            messagebox.showerror("Export Error", f"Failed to export CSV:\n{e}")
 
 # --- Main execution ---
 if __name__ == "__main__":

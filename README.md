@@ -12,7 +12,7 @@ This application is built with tkinter, ttk, matplotlib, and numpy.
   button in this PC-test build).
 - The UI tabs are: `Load Measurement`, `Nyquist Plot`, `Bode Plot`, `Output Log`.
 - Plots are interactive (hover shows point info) and can be exported via
-  "Save Nyquist Plot" / "Save Bode Plot" buttons.
+  "Export Nyquist CSV" / "Export Bode CSV" buttons.
 
 ## Key features
 
@@ -22,7 +22,7 @@ This application is built with tkinter, ttk, matplotlib, and numpy.
 - Permanent color bar beside the Bode magnitude axis indicating coating health
   bands (red / yellow / green).
 - Simple automated diagnosis based on the low-frequency |Z| value.
-- Export plots as PNG / JPG / PDF from the GUI.
+- Export plotted Nyquist/Bode data as CSV from the GUI.
 
 ## Required CSV format
 
@@ -85,7 +85,7 @@ python app.py
 2. All EIS parameters are pre-filled with test values. Click **"Run EIS Measurement"** to start the simulation.  
 3. The app will switch to the "Output Log" tab and show the process (OCP, scan, diagnosis).  
 4. When complete, the app will switch to the "Bode Plot" tab to display the results.  
-5. You can now switch between the "Nyquist Plot" and "Bode Plot" tabs, hover over data points, and use the "Save Plot" buttons to export the images.
+5. You can now switch between the "Nyquist Plot" and "Bode Plot" tabs, hover over data points, and use the CSV export buttons to save plotted data.
 
 ## Troubleshooting
 
@@ -102,8 +102,9 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
 
 ## Exporting plots
 
-- Use the save buttons on each plot tab; supported formats: PNG, JPG, PDF.
-- Images are saved at 300 DPI by default.
+- Use the export buttons on each plot tab; each export saves a CSV file.
+- Nyquist CSV includes `Z_real (Ohm)` and `-Z_imaginary (Ohm)` (plus frequency when available).
+- Bode CSV includes `Frequency (Hz)` and `|Z| (Ohm)`.
 
 ## Future work / Raspberry Pi goals
 
