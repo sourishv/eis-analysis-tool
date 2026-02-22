@@ -17,44 +17,79 @@ except Exception:
 class EisAnalysisTool:
     def __init__(self, root):
         self.root = root
-        self.root.title("PC Test - Potentiostat GUI")
-        self.root.geometry("900x700")
+        self.root.title("EIS Analysis Studio")
+        self.root.geometry("1080x760")
+        self.root.minsize(980, 680)
 
-        # --- Style for larger UI elements ---
+        self.theme = {
+            "bg": "#0f172a",
+            "panel": "#111827",
+            "panel_alt": "#1f2937",
+            "text": "#e5e7eb",
+            "muted": "#9ca3af",
+            "accent": "#38bdf8",
+            "accent_active": "#0ea5e9",
+            "success": "#22c55e",
+            "warning": "#f59e0b",
+            "danger": "#ef4444",
+            "line": "#334155",
+        }
+        self.root.configure(bg=self.theme["bg"])
+
         style = ttk.Style()
-        style.configure("TLabel", font=("Helvetica", 12))
-        style.configure("TButton", font=("Helvetica", 12), padding=10)
-        style.configure("TEntry", font=("Helvetica", 12))
-        style.configure("TFrame", padding=10)
-        style.configure("Header.TLabel", font=("Helvetica", 14, "bold"))
-        style.configure("TNotebook.Tab", font=("Helvetica", 11, "bold"), padding=[10, 5])
-        style.configure("Status.TLabel", font=("Helvetica", 12, "italic"))
-        style.configure("Connect.TButton", font=("Helvetica", 10), padding=5)
-        # Progressbar style with green fill for determinate mode
-        style.configure("Green.Horizontal.TProgressbar", troughcolor='white', background='#4CAF50')
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
 
-        # --- Connection Status Frame ---
-        connect_frame = ttk.Frame(root, relief="groove", borderwidth=2)
-        connect_frame.pack(fill="x", padx=10, pady=10)
+        style.configure("App.TFrame", background=self.theme["bg"])
+        style.configure("Card.TFrame", background=self.theme["panel"], relief="flat")
+        style.configure("InnerCard.TFrame", background=self.theme["panel_alt"], relief="flat")
+        style.configure("TLabel", background=self.theme["bg"], foreground=self.theme["text"], font=("Segoe UI", 11))
+        style.configure("Card.TLabel", background=self.theme["panel"], foreground=self.theme["text"], font=("Segoe UI", 11))
+        style.configure("Muted.Card.TLabel", background=self.theme["panel"], foreground=self.theme["muted"], font=("Segoe UI", 10))
+        style.configure("Header.TLabel", background=self.theme["bg"], foreground=self.theme["text"], font=("Segoe UI Semibold", 20))
+        style.configure("SectionTitle.TLabel", background=self.theme["panel"], foreground=self.theme["text"], font=("Segoe UI Semibold", 12))
+        style.configure("TEntry", fieldbackground="#0b1220", foreground=self.theme["text"], insertcolor=self.theme["text"], bordercolor=self.theme["line"], lightcolor=self.theme["line"], darkcolor=self.theme["line"], font=("Segoe UI", 11))
+        style.configure("Primary.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["accent"], foreground="#0b1220", bordercolor=self.theme["accent"])
+        style.map("Primary.TButton", background=[("active", self.theme["accent_active"]), ("disabled", "#1e293b")], foreground=[("disabled", "#64748b")])
+        style.configure("Secondary.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background="#374151", foreground=self.theme["text"], bordercolor="#4b5563")
+        style.map("Secondary.TButton", background=[("active", "#4b5563"), ("disabled", "#1f2937")], foreground=[("disabled", "#6b7280")])
+        style.configure("Status.TLabel", background=self.theme["panel"], foreground=self.theme["danger"], font=("Segoe UI", 11, "bold"))
+        style.configure("TNotebook", background=self.theme["bg"], borderwidth=0)
+        style.configure("TNotebook.Tab", font=("Segoe UI Semibold", 10), background="#1e293b", foreground="#cbd5e1", padding=(16, 8))
+        style.map("TNotebook.Tab", background=[("selected", self.theme["panel"]), ("active", "#334155")], foreground=[("selected", self.theme["text"]), ("active", self.theme["text"])])
+        style.configure("Green.Horizontal.TProgressbar", troughcolor="#0b1220", background=self.theme["accent"], bordercolor=self.theme["line"], lightcolor=self.theme["accent"], darkcolor=self.theme["accent"])
+
+        main_frame = ttk.Frame(root, style="App.TFrame")
+        main_frame.pack(fill="both", expand=True, padx=14, pady=14)
+
+        header_frame = ttk.Frame(main_frame, style="App.TFrame")
+        header_frame.pack(fill="x", pady=(0, 10))
+        ttk.Label(header_frame, text="EIS Analysis Studio", style="Header.TLabel").pack(anchor="w")
+        ttk.Label(header_frame, text="Application for PalmSens EIS acquisition and diagnostics", style="TLabel").pack(anchor="w", pady=(2, 0))
+
+        connect_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=(14, 12))
+        connect_frame.pack(fill="x", pady=(0, 12))
         connect_frame.columnconfigure(1, weight=1)
 
-        self.connect_btn = ttk.Button(connect_frame, text="Connect", command=self.start_connect_thread, style="Connect.TButton")
-        self.connect_btn.grid(row=0, column=0, sticky="w", padx=(10, 5))
+        ttk.Label(connect_frame, text="Connection", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", padx=(2, 10))
 
-        self.disconnect_btn = ttk.Button(connect_frame, text="Disconnect", command=self.disconnect_device, style="Connect.TButton", state="disabled")
-        self.disconnect_btn.grid(row=0, column=1, sticky="w", padx=5)
+        self.connect_btn = ttk.Button(connect_frame, text="Connect", command=self.start_connect_thread, style="Primary.TButton")
+        self.connect_btn.grid(row=0, column=1, sticky="w", padx=(10, 6))
+
+        self.disconnect_btn = ttk.Button(connect_frame, text="Disconnect", command=self.disconnect_device, style="Secondary.TButton", state="disabled")
+        self.disconnect_btn.grid(row=0, column=2, sticky="w", padx=6)
 
         self.status_label = ttk.Label(
             connect_frame, 
             text="Status: Disconnected", 
-            foreground="red", 
             style="Status.TLabel"
         )
-        self.status_label.grid(row=0, column=2, sticky="e", padx=10)
+        self.status_label.grid(row=0, column=3, sticky="e", padx=(10, 2))
         
-        # --- Main Control Area (using a Notebook/Tabs) ---
-        self.notebook = ttk.Notebook(root)
-        self.notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.pack(fill="both", expand=True)
         # Shared progress variable for progress bars (defined before any bar uses it)
         self.progress_var = tk.DoubleVar(value=0.0)
 
@@ -72,13 +107,16 @@ class EisAnalysisTool:
         self.last_plot_update_time = 0  # Throttle plot updates (milliseconds)
 
         # --- Tab 1: Load Measurement ---
-        self.eis_frame = ttk.Frame(self.notebook)
+        self.eis_frame = ttk.Frame(self.notebook, style="Card.TFrame")
         self.notebook.add(self.eis_frame, text='Measurement Setup') # <-- Renamed Tab
 
         # --- NEW: Load Data Button ---
         # The parameter fields have been removed.
-        load_frame = ttk.Frame(self.eis_frame)
-        load_frame.pack(expand=True)
+        load_frame = ttk.Frame(self.eis_frame, style="Card.TFrame", padding=(18, 16))
+        load_frame.pack(fill="both", expand=True)
+
+        ttk.Label(load_frame, text="Measurement Configuration", style="SectionTitle.TLabel").pack(anchor="w")
+        ttk.Label(load_frame, text="Tune scan parameters and run the real-time EIS test.", style="Muted.Card.TLabel").pack(anchor="w", pady=(2, 14))
 
         # --- Editable EIS parameter fields ---
         params = [
@@ -89,59 +127,63 @@ class EisAnalysisTool:
         ]
 
         self.param_vars = {}
-        params_frame = ttk.Frame(load_frame)
-        params_frame.pack(pady=20)
+        params_frame = ttk.Frame(load_frame, style="InnerCard.TFrame", padding=(16, 14))
+        params_frame.pack(fill="x", pady=(0, 18))
+        params_frame.columnconfigure(1, weight=1)
 
         for i, (label_text, default) in enumerate(params):
-            lbl = ttk.Label(params_frame, text=label_text)
-            lbl.grid(row=i, column=0, sticky="e", padx=(0,8), pady=4)
+            lbl = ttk.Label(params_frame, text=label_text, style="Card.TLabel")
+            lbl.grid(row=i, column=0, sticky="e", padx=(0, 10), pady=6)
             var = tk.StringVar(value=default)
             ent = ttk.Entry(params_frame, textvariable=var, width=20)
-            ent.grid(row=i, column=1, sticky="w", pady=4)
+            ent.grid(row=i, column=1, sticky="ew", pady=6)
             self.param_vars[label_text] = var
 
-        # Run Test button - uses the CSV in project directory and streams data
+        controls_frame = ttk.Frame(load_frame, style="Card.TFrame")
+        controls_frame.pack(fill="x", pady=(2, 8))
+
         self.run_test_btn = ttk.Button(
-            load_frame,
+            controls_frame,
             text="Run Test",
             command=self.start_run_test_thread,
+            style="Primary.TButton",
             state="disabled"
         )
-        self.run_test_btn.pack(pady=(10,40), ipady=8, ipadx=10)
+        self.run_test_btn.pack(side="left")
 
         self.stop_test_btn = ttk.Button(
-            load_frame,
+            controls_frame,
             text="Stop Test",
             command=self.request_stop_measurement,
+            style="Secondary.TButton",
             state="disabled"
         )
-        self.stop_test_btn.pack(pady=(0, 10), ipady=6, ipadx=10)
+        self.stop_test_btn.pack(side="left", padx=(10, 0))
 
-        # Small label to show streaming progress
-        self.load_progress_lbl = ttk.Label(load_frame, text="No test running")
-        self.load_progress_lbl.pack()
+        self.load_progress_lbl = ttk.Label(load_frame, text="No test running", style="Muted.Card.TLabel")
+        self.load_progress_lbl.pack(anchor="w", pady=(8, 0))
         # --- END OF CHANGES TO TAB 1 ---
 
         # --- Tab 2: Nyquist Plot ---
-        nyquist_tab = ttk.Frame(self.notebook)
+        nyquist_tab = ttk.Frame(self.notebook, style="Card.TFrame")
         self.notebook.add(nyquist_tab, text='Nyquist Plot')
-        self.nyquist_fig = Figure(figsize=(6, 4), dpi=100)
+        self.nyquist_fig = Figure(figsize=(6, 4), dpi=100, facecolor=self.theme["panel"])
         self.nyquist_ax = self.nyquist_fig.add_subplot(111)
         self.nyquist_canvas = FigureCanvasTkAgg(self.nyquist_fig, master=nyquist_tab)
-        self.nyquist_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        self.nyquist_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
         
-        self.export_nyquist_btn = ttk.Button(nyquist_tab, text="Save Nyquist Plot", command=lambda: self.export_plot('nyquist'))
-        self.export_nyquist_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5,0))
+        self.export_nyquist_btn = ttk.Button(nyquist_tab, text="Save Nyquist Plot", style="Secondary.TButton", command=lambda: self.export_plot('nyquist'))
+        self.export_nyquist_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
 
         self.nyquist_ax.plot_data = ([], []) 
         self.nyquist_line = None
         self.nyquist_diag_text = None
         
         # --- Tab 3: Bode Plot (Magnitude Only) ---
-        bode_tab = ttk.Frame(self.notebook)
+        bode_tab = ttk.Frame(self.notebook, style="Card.TFrame")
         self.notebook.add(bode_tab, text='Bode Plot')
         
-        self.bode_fig = Figure(figsize=(6, 4), dpi=100)
+        self.bode_fig = Figure(figsize=(6, 4), dpi=100, facecolor=self.theme["panel"])
         
         self.bode_ax_mag = self.bode_fig.add_axes([0.15, 0.15, 0.8, 0.75], zorder=1)
         self.bode_cbar_ax = self.bode_fig.add_axes([0.15, 0.15, 0.03, 0.75], zorder=2)
@@ -153,21 +195,31 @@ class EisAnalysisTool:
         self.bode_diag_text = None
 
         self.bode_canvas = FigureCanvasTkAgg(self.bode_fig, master=bode_tab)
-        self.bode_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        self.bode_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
 
-        self.export_bode_btn = ttk.Button(bode_tab, text="Save Bode Plot", command=lambda: self.export_plot('bode'))
-        self.export_bode_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(5,0))
+        self.export_bode_btn = ttk.Button(bode_tab, text="Save Bode Plot", style="Secondary.TButton", command=lambda: self.export_plot('bode'))
+        self.export_bode_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
 
         # --- Tab 4: Output Log ---
-        log_tab = ttk.Frame(self.notebook)
+        log_tab = ttk.Frame(self.notebook, style="Card.TFrame", padding=(10, 10))
         self.notebook.add(log_tab, text='Output Log')
         # Progress bar shown while a test is running
         self.progress_var = tk.DoubleVar(value=0.0)
-        self.progress_bar = ttk.Progressbar(log_tab, orient='horizontal', mode='determinate', variable=self.progress_var, maximum=100)
-        self.progress_bar.pack(fill='x', padx=5, pady=(5,3))
+        self.progress_bar = ttk.Progressbar(log_tab, style='Green.Horizontal.TProgressbar', orient='horizontal', mode='determinate', variable=self.progress_var, maximum=100)
+        self.progress_bar.pack(fill='x', padx=4, pady=(4, 8))
 
-        self.output_text = scrolledtext.ScrolledText(log_tab, height=10, state="disabled", font=("Courier New", 10))
-        self.output_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.output_text = scrolledtext.ScrolledText(
+            log_tab,
+            height=10,
+            state="disabled",
+            font=("Consolas", 10),
+            bg="#0b1220",
+            fg="#dbeafe",
+            insertbackground="#dbeafe",
+            relief="flat",
+            borderwidth=0,
+        )
+        self.output_text.pack(fill="both", expand=True, padx=4, pady=4)
 
         # --- Initialize Plots & Annotations ---
         self.init_nyquist_plot()
@@ -175,14 +227,16 @@ class EisAnalysisTool:
 
         self.nyquist_annot = self.nyquist_ax.annotate("", xy=(0,0), xytext=(15,15),
             textcoords="offset points",
-            bbox=dict(boxstyle="round", fc="w", alpha=0.7),
-            arrowprops=dict(arrowstyle="->"))
+            bbox=dict(boxstyle="round,pad=0.35", fc="#111827", ec="#475569", alpha=0.95),
+            color="#e5e7eb",
+            arrowprops=dict(arrowstyle="->", color="#94a3b8"))
         self.nyquist_annot.set_visible(False)
 
         self.bode_annot = self.bode_ax_mag.annotate("", xy=(0,0), xytext=(15,15),
             textcoords="offset points",
-            bbox=dict(boxstyle="round", fc="w", alpha=0.7),
-            arrowprops=dict(arrowstyle="->"))
+            bbox=dict(boxstyle="round,pad=0.35", fc="#111827", ec="#475569", alpha=0.95),
+            color="#e5e7eb",
+            arrowprops=dict(arrowstyle="->", color="#94a3b8"))
         self.bode_annot.set_visible(False)
 
         self.nyquist_canvas.mpl_connect("motion_notify_event", self.on_plot_hover)
@@ -201,7 +255,7 @@ class EisAnalysisTool:
         self.connect_btn.config(state="disabled")
         self.disconnect_btn.config(state="disabled")
         self.run_test_btn.config(state="disabled")
-        self.status_label.config(text="Status: Connecting (Bluetooth)...", foreground="orange")
+        self.status_label.config(text="Status: Connecting (Bluetooth)...", foreground=self.theme["warning"])
         threading.Thread(target=self.connect_device, daemon=True).start()
 
     def connect_device(self):
@@ -354,7 +408,7 @@ class EisAnalysisTool:
             self.log_message("Device disconnected.")
 
     def _set_connected_ui(self):
-        self.status_label.config(text="Status: Connected", foreground="green")
+        self.status_label.config(text="Status: Connected", foreground=self.theme["success"])
         self.disconnect_btn.config(state="normal")
         self.run_test_btn.config(state="normal")
 
@@ -362,16 +416,23 @@ class EisAnalysisTool:
         self.connect_btn.config(state="normal")
         self.disconnect_btn.config(state="disabled")
         self.run_test_btn.config(state="disabled")
-        self.status_label.config(text="Status: Disconnected", foreground="red")
+        self.status_label.config(text="Status: Disconnected", foreground=self.theme["danger"])
 
     # --- Plotting Initialization ---
 
     def init_nyquist_plot(self):
         self.nyquist_ax.clear()
+        self.nyquist_ax.set_facecolor(self.theme["panel"])
         self.nyquist_ax.set_xlabel('Z_real (Ohm)')
         self.nyquist_ax.set_ylabel('-Z_imaginary (Ohm)')
         self.nyquist_ax.set_title("Nyquist Plot")
-        self.nyquist_ax.grid(True)
+        self.nyquist_ax.grid(True, color="#334155", linewidth=0.8, alpha=0.8)
+        self.nyquist_ax.tick_params(colors="#cbd5e1")
+        self.nyquist_ax.xaxis.label.set_color("#e5e7eb")
+        self.nyquist_ax.yaxis.label.set_color("#e5e7eb")
+        self.nyquist_ax.title.set_color("#e5e7eb")
+        for spine in self.nyquist_ax.spines.values():
+            spine.set_color("#475569")
         
         # --- NEW: Use ticklabel_format to get the 10^5 offset ---
         # This tells matplotlib to use scientific notation (style='sci')
@@ -387,28 +448,36 @@ class EisAnalysisTool:
         """Initializes Bode plot with color bar and fixed axes."""
         
         self.bode_ax_mag.clear()
+        self.bode_ax_mag.set_facecolor(self.theme["panel"])
         self.bode_ax_mag.set_ylim(1e2, 1e10)
         self.bode_ax_mag.set_xlim(1e-2, 1e5)
         self.bode_ax_mag.set_ylabel('|Z| (Ohm)')
         self.bode_ax_mag.set_xlabel('Frequency (Hz)')
         self.bode_ax_mag.set_title("Bode Plot")
-        self.bode_ax_mag.grid(True, which='both')
+        self.bode_ax_mag.grid(True, which='both', color="#334155", linewidth=0.8, alpha=0.8)
+        self.bode_ax_mag.tick_params(colors="#cbd5e1")
+        self.bode_ax_mag.xaxis.label.set_color("#e5e7eb")
+        self.bode_ax_mag.yaxis.label.set_color("#e5e7eb")
+        self.bode_ax_mag.title.set_color("#e5e7eb")
+        for spine in self.bode_ax_mag.spines.values():
+            spine.set_color("#475569")
         self.bode_ax_mag.set_yscale('log')
         self.bode_ax_mag.set_xscale('log')
         
         self.bode_cbar_ax.clear()
+        self.bode_cbar_ax.set_facecolor(self.theme["panel"])
         self.bode_cbar_ax.set_yscale('log')
         self.bode_cbar_ax.set_ylim(1e2, 1e10)
         
-        self.bode_cbar_ax.axhspan(1e2, 1e5, facecolor='#FF8A80', alpha=0.4) # Red
-        self.bode_cbar_ax.axhspan(1e5, 1e7, facecolor='#FFFF8D', alpha=0.4) # Yellow
-        self.bode_cbar_ax.axhspan(1e7, 1e10, facecolor='#B9F6CA', alpha=0.4) # Green
+        self.bode_cbar_ax.axhspan(1e2, 1e5, facecolor='#ef4444', alpha=0.45) # Red
+        self.bode_cbar_ax.axhspan(1e5, 1e7, facecolor='#f59e0b', alpha=0.45) # Yellow
+        self.bode_cbar_ax.axhspan(1e7, 1e10, facecolor='#22c55e', alpha=0.45) # Green
 
         self.bode_cbar_ax.set_xticks([])
         self.bode_cbar_ax.set_yticks([])
         self.bode_cbar_ax.set_yticklabels([])
         
-        self.bode_cbar_ax.patch.set_alpha(0) 
+        self.bode_cbar_ax.patch.set_alpha(0.6)
         
         self.bode_canvas.draw()
 
@@ -567,7 +636,7 @@ class EisAnalysisTool:
             
             # --- 1. Nyquist Plot ---
             self.init_nyquist_plot() # Clears, sets formatters
-            self.nyquist_ax.plot(z_real, z_imag_neg, 'o-', markersize=4, color='blue')
+            self.nyquist_ax.plot(z_real, z_imag_neg, 'o-', markersize=4, color=self.theme["accent"])
             self.nyquist_ax.plot_data = (z_real, z_imag_neg)
             self.nyquist_ax.relim()
             self.nyquist_ax.autoscale_view()
@@ -580,7 +649,7 @@ class EisAnalysisTool:
 
             # --- 2. Bode Plot ---
             self.init_bode_plot() 
-            self.bode_ax_mag.loglog(freq, z_mag, 'o-', markersize=4, color='blue', zorder=10)
+            self.bode_ax_mag.loglog(freq, z_mag, 'o-', markersize=4, color=self.theme["accent"], zorder=10)
             self.bode_ax_mag.plot_data = (freq, z_mag)
             self.bode_canvas.draw()
             
@@ -625,11 +694,11 @@ class EisAnalysisTool:
             except Exception:
                 pass
 
-            self.shared_progress_frame = ttk.Frame(bode_tab_widget)
+            self.shared_progress_frame = ttk.Frame(bode_tab_widget, style="Card.TFrame")
             # pack it before the save button so it appears above
             self.shared_progress = ttk.Progressbar(self.shared_progress_frame, style='Green.Horizontal.TProgressbar', orient='horizontal', mode='determinate', variable=self.progress_var, maximum=100)
             self.shared_progress.pack(side='left', fill='x', expand=True, padx=(0,8))
-            self.shared_progress_label = ttk.Label(self.shared_progress_frame, text='0%')
+            self.shared_progress_label = ttk.Label(self.shared_progress_frame, text='0%', style="Card.TLabel")
             self.shared_progress_label.pack(side='right')
             # Insert above the save button
             try:
@@ -1075,7 +1144,7 @@ class EisAnalysisTool:
             # --- Nyquist: create or update a persistent Line2D to avoid clearing the axes ---
             if self.nyquist_line is None:
                 # create the initial line on existing axes (axes already initialized in init_nyquist_plot)
-                (self.nyquist_line,) = self.nyquist_ax.plot(z_real_subset, z_imag_neg, 'o-', markersize=4, color='blue')
+                (self.nyquist_line,) = self.nyquist_ax.plot(z_real_subset, z_imag_neg, 'o-', markersize=4, color=self.theme["accent"])
                 self.nyquist_ax.plot_data = (z_real_subset, z_imag_neg)
                 try:
                     self.nyquist_ax.axis('equal')
@@ -1095,7 +1164,7 @@ class EisAnalysisTool:
             # --- Bode: update persistent line on log-scaled axes ---
             safe_freq = np.where(freq_subset <= 0, 1e-6, freq_subset)
             if self.bode_line is None:
-                (self.bode_line,) = self.bode_ax_mag.plot(safe_freq, z_mag, 'o-', markersize=4, color='blue', zorder=10)
+                (self.bode_line,) = self.bode_ax_mag.plot(safe_freq, z_mag, 'o-', markersize=4, color=self.theme["accent"], zorder=10)
                 self.bode_ax_mag.plot_data = (safe_freq, z_mag)
             else:
                 # update data in-place
@@ -1118,13 +1187,13 @@ class EisAnalysisTool:
             # Decide color based on keywords
             txt = diagnosis_text.lower()
             if 'healthy' in txt or 'pass' in txt:
-                face = '#4CAF50'  # green
+                face = '#16a34a'  # green
                 fg = 'white'
             elif 'monitor' in txt or 'caution' in txt or 'medium' in txt:
-                face = '#FFB300'  # amber
-                fg = 'black'
+                face = '#d97706'  # amber
+                fg = 'white'
             else:
-                face = '#E53935'  # red
+                face = '#dc2626'  # red
                 fg = 'white'
 
             # Prepare display text (shortened)
