@@ -17,22 +17,33 @@ except Exception:
 class EisAnalysisTool:
     def __init__(self, root):
         self.root = root
-        self.root.title("EIS Analysis Studio")
+        self.root.title("EIS Analysis Tool")
         self.root.geometry("1080x760")
         self.root.minsize(980, 680)
 
         self.theme = {
-            "bg": "#0f172a",
-            "panel": "#111827",
-            "panel_alt": "#1f2937",
-            "text": "#e5e7eb",
-            "muted": "#9ca3af",
-            "accent": "#38bdf8",
-            "accent_active": "#0ea5e9",
-            "success": "#22c55e",
-            "warning": "#f59e0b",
-            "danger": "#ef4444",
-            "line": "#334155",
+            "bg": "#0f141b",
+            "panel": "#171f29",
+            "panel_alt": "#1c2633",
+            "text": "#e9eff7",
+            "muted": "#a8b8cb",
+            "accent": "#3b82f6",
+            "accent_active": "#5a97f7",
+            "success": "#34a853",
+            "warning": "#dca64a",
+            "danger": "#e35d6a",
+            "line": "#2f3f53",
+            "line_soft": "#243140",
+            "entry_bg": "#121a24",
+            "tab_bg": "#1a2430",
+            "tab_text": "#d8e3f0",
+            "tab_hover": "#24364c",
+            "btn_secondary": "#24364c",
+            "btn_secondary_hover": "#2c4561",
+            "btn_disabled": "#1e2a37",
+            "diag_fail": "#b9434f",
+            "diag_caution": "#be8a3a",
+            "diag_pass": "#3f9353",
         }
         self.root.configure(bg=self.theme["bg"])
 
@@ -43,30 +54,32 @@ class EisAnalysisTool:
             pass
 
         style.configure("App.TFrame", background=self.theme["bg"])
-        style.configure("Card.TFrame", background=self.theme["panel"], relief="flat")
-        style.configure("InnerCard.TFrame", background=self.theme["panel_alt"], relief="flat")
+        style.configure("Card.TFrame", background=self.theme["panel"], relief="solid", borderwidth=1, bordercolor=self.theme["line_soft"])
+        style.configure("InnerCard.TFrame", background=self.theme["panel_alt"], relief="solid", borderwidth=1, bordercolor=self.theme["line"])
         style.configure("TLabel", background=self.theme["bg"], foreground=self.theme["text"], font=("Segoe UI", 11))
         style.configure("Card.TLabel", background=self.theme["panel"], foreground=self.theme["text"], font=("Segoe UI", 11))
+        style.configure("Inner.Card.TLabel", background=self.theme["panel_alt"], foreground=self.theme["text"], font=("Segoe UI", 11))
         style.configure("Muted.Card.TLabel", background=self.theme["panel"], foreground=self.theme["muted"], font=("Segoe UI", 10))
         style.configure("Header.TLabel", background=self.theme["bg"], foreground=self.theme["text"], font=("Segoe UI Semibold", 20))
         style.configure("SectionTitle.TLabel", background=self.theme["panel"], foreground=self.theme["text"], font=("Segoe UI Semibold", 12))
-        style.configure("TEntry", fieldbackground="#0b1220", foreground=self.theme["text"], insertcolor=self.theme["text"], bordercolor=self.theme["line"], lightcolor=self.theme["line"], darkcolor=self.theme["line"], font=("Segoe UI", 11))
-        style.configure("Primary.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["accent"], foreground="#0b1220", bordercolor=self.theme["accent"])
-        style.map("Primary.TButton", background=[("active", self.theme["accent_active"]), ("disabled", "#1e293b")], foreground=[("disabled", "#64748b")])
-        style.configure("Secondary.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background="#374151", foreground=self.theme["text"], bordercolor="#4b5563")
-        style.map("Secondary.TButton", background=[("active", "#4b5563"), ("disabled", "#1f2937")], foreground=[("disabled", "#6b7280")])
+        style.configure("TEntry", fieldbackground=self.theme["entry_bg"], foreground=self.theme["text"], insertcolor=self.theme["text"], bordercolor=self.theme["line"], lightcolor=self.theme["line"], darkcolor=self.theme["line"], padding=(8, 6), font=("Segoe UI", 11))
+        style.configure("Primary.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["accent"], foreground=self.theme["bg"], bordercolor=self.theme["accent"])
+        style.map("Primary.TButton", background=[("active", self.theme["accent_active"]), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
+        style.configure("Secondary.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["btn_secondary"], foreground=self.theme["text"], bordercolor=self.theme["line"])
+        style.map("Secondary.TButton", background=[("active", self.theme["btn_secondary_hover"]), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("Status.TLabel", background=self.theme["panel"], foreground=self.theme["danger"], font=("Segoe UI", 11, "bold"))
-        style.configure("TNotebook", background=self.theme["bg"], borderwidth=0)
-        style.configure("TNotebook.Tab", font=("Segoe UI Semibold", 10), background="#1e293b", foreground="#cbd5e1", padding=(16, 8))
-        style.map("TNotebook.Tab", background=[("selected", self.theme["panel"]), ("active", "#334155")], foreground=[("selected", self.theme["text"]), ("active", self.theme["text"])])
-        style.configure("Green.Horizontal.TProgressbar", troughcolor="#0b1220", background=self.theme["accent"], bordercolor=self.theme["line"], lightcolor=self.theme["accent"], darkcolor=self.theme["accent"])
+        style.configure("TNotebook", background=self.theme["bg"], borderwidth=0, tabmargins=(2, 2, 2, 0))
+        style.configure("TNotebook.Tab", font=("Segoe UI Semibold", 10), background=self.theme["tab_bg"], foreground=self.theme["tab_text"], padding=(16, 8))
+        style.map("TNotebook.Tab", background=[("selected", self.theme["panel"]), ("active", self.theme["tab_hover"])], foreground=[("selected", self.theme["text"]), ("active", self.theme["text"])])
+        style.configure("Hint.Card.TLabel", background=self.theme["panel_alt"], foreground=self.theme["muted"], font=("Segoe UI", 9))
+        style.configure("Green.Horizontal.TProgressbar", troughcolor=self.theme["entry_bg"], background=self.theme["accent"], bordercolor=self.theme["line"], lightcolor=self.theme["accent"], darkcolor=self.theme["accent"])
 
         main_frame = ttk.Frame(root, style="App.TFrame")
         main_frame.pack(fill="both", expand=True, padx=14, pady=14)
 
         header_frame = ttk.Frame(main_frame, style="App.TFrame")
         header_frame.pack(fill="x", pady=(0, 10))
-        ttk.Label(header_frame, text="EIS Analysis Studio", style="Header.TLabel").pack(anchor="w")
+        ttk.Label(header_frame, text="EIS Analysis Tool", style="Header.TLabel").pack(anchor="w")
         ttk.Label(header_frame, text="Application for PalmSens EIS acquisition and diagnostics", style="TLabel").pack(anchor="w", pady=(2, 0))
 
         connect_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=(14, 12))
@@ -125,23 +138,26 @@ class EisAnalysisTool:
 
         # --- Editable EIS parameter fields ---
         params = [
-            ("Start Frequency (Hz)", "1e5"),
-            ("End Frequency (Hz)", "1e-1"),
-            ("Voltage Amplitude (mV)", "50"),
-            ("Points per Decade", "5"),
+            ("Start Frequency (Hz)", "1e5", "Highest scan frequency (example: 100000)"),
+            ("End Frequency (Hz)", "1e-1", "Lowest scan frequency (example: 0.1)"),
+            ("Voltage Amplitude (mV)", "50", "AC excitation amplitude in millivolts"),
+            ("Points per Decade", "5", "Resolution of the sweep (higher = denser scan)"),
         ]
 
         self.param_vars = {}
         params_frame = ttk.Frame(load_frame, style="InnerCard.TFrame", padding=(16, 14))
         params_frame.pack(fill="x", pady=(0, 18))
+        params_frame.columnconfigure(0, weight=0)
         params_frame.columnconfigure(1, weight=1)
 
-        for i, (label_text, default) in enumerate(params):
-            lbl = ttk.Label(params_frame, text=label_text, style="Card.TLabel")
-            lbl.grid(row=i, column=0, sticky="e", padx=(0, 10), pady=6)
+        for i, (label_text, default, helper_text) in enumerate(params):
+            lbl = ttk.Label(params_frame, text=label_text, style="Inner.Card.TLabel")
+            lbl.grid(row=i * 2, column=0, sticky="w", padx=(0, 12), pady=(4, 0))
             var = tk.StringVar(value=default)
-            ent = ttk.Entry(params_frame, textvariable=var, width=20)
-            ent.grid(row=i, column=1, sticky="ew", pady=6)
+            ent = ttk.Entry(params_frame, textvariable=var, width=24)
+            ent.grid(row=i * 2, column=1, sticky="ew", pady=(4, 0))
+            hint = ttk.Label(params_frame, text=helper_text, style="Hint.Card.TLabel")
+            hint.grid(row=i * 2 + 1, column=1, sticky="w", pady=(1, 8))
             self.param_vars[label_text] = var
 
         controls_frame = ttk.Frame(load_frame, style="Card.TFrame")
@@ -218,11 +234,14 @@ class EisAnalysisTool:
             height=10,
             state="disabled",
             font=("Consolas", 10),
-            bg="#0b1220",
-            fg="#dbeafe",
-            insertbackground="#dbeafe",
-            relief="flat",
-            borderwidth=0,
+            bg=self.theme["entry_bg"],
+            fg=self.theme["text"],
+            insertbackground=self.theme["text"],
+            relief="solid",
+            borderwidth=1,
+            highlightthickness=1,
+            highlightbackground=self.theme["line_soft"],
+            highlightcolor=self.theme["line"],
         )
         self.output_text.pack(fill="both", expand=True, padx=4, pady=4)
 
@@ -232,16 +251,16 @@ class EisAnalysisTool:
 
         self.nyquist_annot = self.nyquist_ax.annotate("", xy=(0,0), xytext=(15,15),
             textcoords="offset points",
-            bbox=dict(boxstyle="round,pad=0.35", fc="#111827", ec="#475569", alpha=0.95),
-            color="#e5e7eb",
-            arrowprops=dict(arrowstyle="->", color="#94a3b8"))
+            bbox=dict(boxstyle="round,pad=0.35", fc=self.theme["panel_alt"], ec=self.theme["line"], alpha=0.95),
+            color=self.theme["text"],
+            arrowprops=dict(arrowstyle="->", color=self.theme["muted"]))
         self.nyquist_annot.set_visible(False)
 
         self.bode_annot = self.bode_ax_mag.annotate("", xy=(0,0), xytext=(15,15),
             textcoords="offset points",
-            bbox=dict(boxstyle="round,pad=0.35", fc="#111827", ec="#475569", alpha=0.95),
-            color="#e5e7eb",
-            arrowprops=dict(arrowstyle="->", color="#94a3b8"))
+            bbox=dict(boxstyle="round,pad=0.35", fc=self.theme["panel_alt"], ec=self.theme["line"], alpha=0.95),
+            color=self.theme["text"],
+            arrowprops=dict(arrowstyle="->", color=self.theme["muted"]))
         self.bode_annot.set_visible(False)
 
         self.nyquist_canvas.mpl_connect("motion_notify_event", self.on_plot_hover)
@@ -431,13 +450,13 @@ class EisAnalysisTool:
         self.nyquist_ax.set_xlabel('Z_real (Ohm)')
         self.nyquist_ax.set_ylabel('-Z_imaginary (Ohm)')
         self.nyquist_ax.set_title("Nyquist Plot")
-        self.nyquist_ax.grid(True, color="#334155", linewidth=0.8, alpha=0.8)
-        self.nyquist_ax.tick_params(colors="#cbd5e1")
-        self.nyquist_ax.xaxis.label.set_color("#e5e7eb")
-        self.nyquist_ax.yaxis.label.set_color("#e5e7eb")
-        self.nyquist_ax.title.set_color("#e5e7eb")
+        self.nyquist_ax.grid(True, color=self.theme["line"], linewidth=0.8, alpha=0.8)
+        self.nyquist_ax.tick_params(colors=self.theme["muted"])
+        self.nyquist_ax.xaxis.label.set_color(self.theme["text"])
+        self.nyquist_ax.yaxis.label.set_color(self.theme["text"])
+        self.nyquist_ax.title.set_color(self.theme["text"])
         for spine in self.nyquist_ax.spines.values():
-            spine.set_color("#475569")
+            spine.set_color(self.theme["line"])
         
         # --- NEW: Use ticklabel_format to get the 10^5 offset ---
         # This tells matplotlib to use scientific notation (style='sci')
@@ -459,13 +478,13 @@ class EisAnalysisTool:
         self.bode_ax_mag.set_ylabel('|Z| (Ohm)')
         self.bode_ax_mag.set_xlabel('Frequency (Hz)')
         self.bode_ax_mag.set_title("Bode Plot")
-        self.bode_ax_mag.grid(True, which='both', color="#334155", linewidth=0.8, alpha=0.8)
-        self.bode_ax_mag.tick_params(colors="#cbd5e1")
-        self.bode_ax_mag.xaxis.label.set_color("#e5e7eb")
-        self.bode_ax_mag.yaxis.label.set_color("#e5e7eb")
-        self.bode_ax_mag.title.set_color("#e5e7eb")
+        self.bode_ax_mag.grid(True, which='both', color=self.theme["line"], linewidth=0.8, alpha=0.8)
+        self.bode_ax_mag.tick_params(colors=self.theme["muted"])
+        self.bode_ax_mag.xaxis.label.set_color(self.theme["text"])
+        self.bode_ax_mag.yaxis.label.set_color(self.theme["text"])
+        self.bode_ax_mag.title.set_color(self.theme["text"])
         for spine in self.bode_ax_mag.spines.values():
-            spine.set_color("#475569")
+            spine.set_color(self.theme["line"])
         self.bode_ax_mag.set_yscale('log')
         self.bode_ax_mag.set_xscale('log')
         
@@ -474,9 +493,9 @@ class EisAnalysisTool:
         self.bode_cbar_ax.set_yscale('log')
         self.bode_cbar_ax.set_ylim(1e2, 1e10)
         
-        self.bode_cbar_ax.axhspan(1e2, 1e5, facecolor='#ef4444', alpha=0.45) # Red
-        self.bode_cbar_ax.axhspan(1e5, 1e7, facecolor='#f59e0b', alpha=0.45) # Yellow
-        self.bode_cbar_ax.axhspan(1e7, 1e10, facecolor='#22c55e', alpha=0.45) # Green
+        self.bode_cbar_ax.axhspan(1e2, 1e5, facecolor=self.theme['diag_fail'], alpha=0.45) # Red
+        self.bode_cbar_ax.axhspan(1e5, 1e7, facecolor=self.theme['diag_caution'], alpha=0.45) # Yellow
+        self.bode_cbar_ax.axhspan(1e7, 1e10, facecolor=self.theme['diag_pass'], alpha=0.45) # Green
 
         self.bode_cbar_ax.set_xticks([])
         self.bode_cbar_ax.set_yticks([])
@@ -1202,13 +1221,13 @@ class EisAnalysisTool:
             # Decide color based on keywords
             txt = diagnosis_text.lower()
             if 'healthy' in txt or 'pass' in txt:
-                face = '#16a34a'  # green
+                face = self.theme['diag_pass']
                 fg = 'white'
             elif 'monitor' in txt or 'caution' in txt or 'medium' in txt:
-                face = '#d97706'  # amber
+                face = self.theme['diag_caution']
                 fg = 'white'
             else:
-                face = '#dc2626'  # red
+                face = self.theme['diag_fail']
                 fg = 'white'
 
             # Prepare display text (shortened)
