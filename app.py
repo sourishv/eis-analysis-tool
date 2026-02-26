@@ -1,9 +1,10 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
+from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
 import threading
 import time
 import os
 import re
+import webbrowser
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
@@ -67,6 +68,10 @@ class EisAnalysisTool:
         style.map("Primary.TButton", background=[("active", self.theme["accent_active"]), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("Secondary.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["btn_secondary"], foreground=self.theme["text"], bordercolor=self.theme["line"])
         style.map("Secondary.TButton", background=[("active", self.theme["btn_secondary_hover"]), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
+        style.configure("Run.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["success"], foreground="white", bordercolor=self.theme["success"])
+        style.map("Run.TButton", background=[("active", "#43ba62"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
+        style.configure("Stop.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["danger"], foreground="white", bordercolor=self.theme["danger"])
+        style.map("Stop.TButton", background=[("active", "#f06b78"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("Status.TLabel", background=self.theme["panel"], foreground=self.theme["danger"], font=("Segoe UI", 11, "bold"))
         style.configure("TNotebook", background=self.theme["bg"], borderwidth=0, tabmargins=(2, 2, 2, 0))
         style.configure("TNotebook.Tab", font=("Segoe UI Semibold", 10), background=self.theme["tab_bg"], foreground=self.theme["tab_text"], padding=(16, 8))
@@ -84,22 +89,33 @@ class EisAnalysisTool:
 
         connect_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=(14, 12))
         connect_frame.pack(fill="x", pady=(0, 12))
-        connect_frame.columnconfigure(1, weight=1)
+        connect_frame.columnconfigure(5, weight=1)
 
         ttk.Label(connect_frame, text="Connection", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", padx=(2, 10))
 
+        ttk.Label(connect_frame, text="Device", style="Card.TLabel").grid(row=0, column=1, sticky="w", padx=(8, 6))
+        self.device_var = tk.StringVar(value="Sensit BT")
+        self.device_combo = ttk.Combobox(
+            connect_frame,
+            textvariable=self.device_var,
+            values=["Sensit BT", "Simulated Mode", "Messy Data", "Calibration"],
+            state="readonly",
+            width=18,
+        )
+        self.device_combo.grid(row=0, column=2, sticky="w", padx=(0, 10))
+
         self.connect_btn = ttk.Button(connect_frame, text="Connect", command=self.start_connect_thread, style="Primary.TButton")
-        self.connect_btn.grid(row=0, column=1, sticky="w", padx=(10, 6))
+        self.connect_btn.grid(row=0, column=3, sticky="w", padx=(0, 6))
 
         self.disconnect_btn = ttk.Button(connect_frame, text="Disconnect", command=self.disconnect_device, style="Secondary.TButton", state="disabled")
-        self.disconnect_btn.grid(row=0, column=2, sticky="w", padx=6)
+        self.disconnect_btn.grid(row=0, column=4, sticky="w", padx=6)
 
         self.status_label = ttk.Label(
             connect_frame, 
             text="Status: Disconnected", 
             style="Status.TLabel"
         )
-        self.status_label.grid(row=0, column=3, sticky="e", padx=(10, 2))
+        self.status_label.grid(row=0, column=5, sticky="e", padx=(10, 2))
         
         self.notebook = ttk.Notebook(main_frame)
         self.notebook.pack(fill="both", expand=True)
@@ -109,6 +125,9 @@ class EisAnalysisTool:
         # PyPalmSens runtime state
         self.ps_manager = None
         self.ps_instrument = None
+        self.connection_mode = None  # "sensit_bt" or "simulated" or "messy" or "calibration"
+        self.connection_in_progress = False
+        self.cancel_connect_requested = False
         self.expected_points = 0
         self.measurement_in_progress = False
         self.target_mac = "00:16:A4:79:4E:03"
@@ -123,6 +142,11 @@ class EisAnalysisTool:
             'z_real': np.array([]),
             'z_imag': np.array([]),
         }
+        self.test_run_counter = 0
+        self.sim_reference_profile = None
+        self.shared_progress_frame = None
+        self.shared_progress = None
+        self.shared_progress_label = None
 
         # --- Tab 1: Load Measurement ---
         self.eis_frame = ttk.Frame(self.notebook, style="Card.TFrame")
@@ -167,16 +191,25 @@ class EisAnalysisTool:
             controls_frame,
             text="Run Test",
             command=self.start_run_test_thread,
-            style="Primary.TButton",
+            style="Run.TButton",
             state="disabled"
         )
         self.run_test_btn.pack(side="left")
+
+        self.calibrate_btn = ttk.Button(
+            controls_frame,
+            text="Calibrate",
+            command=self.start_calibration_thread,
+            style="Secondary.TButton",
+            state="disabled"
+        )
+        self.calibrate_btn.pack(side="right")
 
         self.stop_test_btn = ttk.Button(
             controls_frame,
             text="Stop Test",
             command=self.request_stop_measurement,
-            style="Secondary.TButton",
+            style="Stop.TButton",
             state="disabled"
         )
         self.stop_test_btn.pack(side="left", padx=(10, 0))
@@ -193,12 +226,32 @@ class EisAnalysisTool:
         self.nyquist_canvas = FigureCanvasTkAgg(self.nyquist_fig, master=nyquist_tab)
         self.nyquist_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
         
-        self.export_nyquist_btn = ttk.Button(nyquist_tab, text="Export Nyquist CSV", style="Secondary.TButton", command=lambda: self.export_plot('nyquist'))
-        self.export_nyquist_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
+        nyquist_export_frame = ttk.Frame(nyquist_tab, style="Card.TFrame")
+        nyquist_export_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
+
+        self.export_nyquist_btn = ttk.Button(
+            nyquist_export_frame,
+            text="💾 Save to Device",
+            style="Secondary.TButton",
+            command=lambda: self.export_plot('nyquist'),
+            state="disabled",
+        )
+        self.export_nyquist_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+
+        self.export_nyquist_cloud_btn = ttk.Button(
+            nyquist_export_frame,
+            text="☁ Upload",
+            style="Secondary.TButton",
+            command=lambda: self.export_plot_to_cloud('nyquist'),
+            state="disabled",
+        )
+        self.export_nyquist_cloud_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
 
         self.nyquist_ax.plot_data = ([], []) 
         self.nyquist_line = None
         self.nyquist_diag_text = None
+        self.nyquist_quality_text = None
+        self.nyquist_calibration_text = None
         
         # --- Tab 3: Bode Plot (Magnitude Only) ---
         bode_tab = ttk.Frame(self.notebook, style="Card.TFrame")
@@ -214,12 +267,36 @@ class EisAnalysisTool:
 
         self.bode_line = None
         self.bode_diag_text = None
+        self.bode_quality_text = None
+        self.bode_calibration_text = None
+        self.bode_eval_vline = None
+        self.bode_eval_hline = None
+        self.bode_eval_point = None
+        self.bode_eval_text = None
 
         self.bode_canvas = FigureCanvasTkAgg(self.bode_fig, master=bode_tab)
         self.bode_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
 
-        self.export_bode_btn = ttk.Button(bode_tab, text="Export Bode CSV", style="Secondary.TButton", command=lambda: self.export_plot('bode'))
-        self.export_bode_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
+        bode_export_frame = ttk.Frame(bode_tab, style="Card.TFrame")
+        bode_export_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
+
+        self.export_bode_btn = ttk.Button(
+            bode_export_frame,
+            text="💾 Save to Device",
+            style="Secondary.TButton",
+            command=lambda: self.export_plot('bode'),
+            state="disabled",
+        )
+        self.export_bode_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+
+        self.export_bode_cloud_btn = ttk.Button(
+            bode_export_frame,
+            text="☁ Upload",
+            style="Secondary.TButton",
+            command=lambda: self.export_plot_to_cloud('bode'),
+            state="disabled",
+        )
+        self.export_bode_cloud_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
 
         # --- Tab 4: Output Log ---
         log_tab = ttk.Frame(self.notebook, style="Card.TFrame", padding=(10, 10))
@@ -266,26 +343,115 @@ class EisAnalysisTool:
         self.nyquist_canvas.mpl_connect("motion_notify_event", self.on_plot_hover)
         self.bode_canvas.mpl_connect("motion_notify_event", self.on_plot_hover)
 
-        # Try fast reconnect on startup (skip discovery if already connected and MAC is known)
-        if self.target_mac:
-            self.root.after(500, self.start_connect_thread)
-
     # --- REMOVED _create_param_entry ---
 
     # --- Connection Logic (Simulated) ---
 
     def start_connect_thread(self):
-        """Connect to a PalmSens instrument over Bluetooth using PyPalmSens."""
-        self.connect_btn.config(state="disabled")
+        """Connect to selected device mode."""
+        selected_device = self.device_var.get().strip()
+        self.connection_in_progress = True
+        self.cancel_connect_requested = False
+        if selected_device == "Sensit BT":
+            self.connect_btn.config(text="Cancel", command=self.request_cancel_connect, state="normal")
+        else:
+            self.connect_btn.config(state="disabled")
         self.disconnect_btn.config(state="disabled")
         self.run_test_btn.config(state="disabled")
-        self.status_label.config(text="Status: Connecting (Bluetooth)...", foreground=self.theme["warning"])
-        threading.Thread(target=self.connect_device, daemon=True).start()
+        self.calibrate_btn.config(state="disabled")
+        self.status_label.config(text=f"Status: Connecting ({selected_device})...", foreground=self.theme["warning"])
+
+        if selected_device == "Simulated Mode":
+            threading.Thread(target=self.connect_simulated_device, daemon=True).start()
+        elif selected_device == "Messy Data":
+            threading.Thread(target=self.connect_messy_device, daemon=True).start()
+        elif selected_device == "Calibration":
+            threading.Thread(target=self.connect_calibration_device, daemon=True).start()
+        else:
+            threading.Thread(target=self.connect_device, daemon=True).start()
+
+    def request_cancel_connect(self):
+        """Request cancellation of an in-progress real Bluetooth connection attempt."""
+        if not self.connection_in_progress:
+            return
+        self.cancel_connect_requested = True
+        self.connect_btn.config(state="disabled")
+        self.status_label.config(text="Status: Cancelling connection...", foreground=self.theme["warning"])
+        self.log_message("Cancel requested: Bluetooth connection attempt will stop as soon as possible.")
+
+    def _finish_connection_cancelled(self):
+        """Finalize UI state after a cancelled connection attempt."""
+        self.connection_in_progress = False
+        self.cancel_connect_requested = False
+        self._set_disconnected_ui()
+        self.log_message("Connection attempt cancelled.")
+
+    def connect_simulated_device(self):
+        """Connect to simulated runtime mode (no Bluetooth required)."""
+        try:
+            try:
+                if self.ps_manager is not None:
+                    self.ps_manager.disconnect()
+            except Exception:
+                pass
+
+            self.ps_manager = None
+            self.ps_instrument = None
+            self.connection_mode = "simulated"
+            self.log_message("Connected to Simulated Mode.")
+            self.root.after(0, self._set_connected_ui, "Simulated Mode")
+        except Exception as e:
+            self.log_message(f"Simulated mode connection failed: {e}")
+            self.connection_mode = None
+            self.root.after(0, self._set_disconnected_ui)
+
+    def connect_messy_device(self):
+        """Connect to messy simulated runtime mode for setup/fit testing."""
+        try:
+            try:
+                if self.ps_manager is not None:
+                    self.ps_manager.disconnect()
+            except Exception:
+                pass
+
+            self.ps_manager = None
+            self.ps_instrument = None
+            self.connection_mode = "messy"
+            self.log_message("Connected to Messy Data mode.")
+            self.root.after(0, self._set_connected_ui, "Messy Data")
+        except Exception as e:
+            self.log_message(f"Messy data mode connection failed: {e}")
+            self.connection_mode = None
+            self.root.after(0, self._set_disconnected_ui)
+
+    def connect_calibration_device(self):
+        """Connect to calibration runtime mode (simulated 3-pass sequence)."""
+        try:
+            try:
+                if self.ps_manager is not None:
+                    self.ps_manager.disconnect()
+            except Exception:
+                pass
+
+            self.ps_manager = None
+            self.ps_instrument = None
+            self.connection_mode = "calibration"
+            self.log_message("Connected to Calibration mode.")
+            self.root.after(0, self._set_connected_ui, "Calibration")
+        except Exception as e:
+            self.log_message(f"Calibration mode connection failed: {e}")
+            self.connection_mode = None
+            self.root.after(0, self._set_disconnected_ui)
 
     def connect_device(self):
         """Discover and connect to first available Bluetooth PalmSens instrument."""
+        if self.cancel_connect_requested:
+            self.root.after(0, self._finish_connection_cancelled)
+            return
+
         if ps is None:
             self.log_message("ERROR: PyPalmSens is not installed. Install with: pip install pypalmsens")
+            self.connection_mode = None
             self.root.after(0, self._set_disconnected_ui)
             return
 
@@ -310,8 +476,14 @@ class EisAnalysisTool:
                 serial=False,
                 ignore_errors=True,
             )
+
+            if self.cancel_connect_requested:
+                self.root.after(0, self._finish_connection_cancelled)
+                return
+
             if not instruments:
                 self.log_message("No Bluetooth PalmSens instruments found.")
+                self.connection_mode = None
                 self.root.after(0, self._set_disconnected_ui)
                 return
 
@@ -328,17 +500,25 @@ class EisAnalysisTool:
                         break
                 if selected is None:
                     self.log_message(f"Configured MAC {self.target_mac} not found in discovered devices.")
+                    self.connection_mode = None
                     self.root.after(0, self._set_disconnected_ui)
                     return
                 self.log_message(f"Using configured MAC match: {self._describe_instrument(selected)}")
             else:
                 selected = instruments[0]
 
+            if self.cancel_connect_requested:
+                self.root.after(0, self._finish_connection_cancelled)
+                return
+
             self.ps_instrument = selected
 
             # Retry once for transient socket/binding issues
             last_err = None
             for attempt in range(1, 3):
+                if self.cancel_connect_requested:
+                    self.root.after(0, self._finish_connection_cancelled)
+                    return
                 try:
                     self.ps_manager = ps.InstrumentManager(self.ps_instrument)
                     self.ps_manager.connect()
@@ -358,12 +538,14 @@ class EisAnalysisTool:
                 raise last_err if last_err is not None else RuntimeError("Unknown connection error")
 
             serial = self.ps_manager.get_instrument_serial()
+            self.connection_mode = "sensit_bt"
             self.log_message(f"Connected to {self.ps_instrument.name} (Serial: {serial})")
-            self.root.after(0, self._set_connected_ui)
+            self.root.after(0, self._set_connected_ui, "Sensit BT")
         except Exception as e:
             self.log_message(f"Bluetooth connection failed: {e}")
             self.ps_manager = None
             self.ps_instrument = None
+            self.connection_mode = None
             self.root.after(0, self._set_disconnected_ui)
 
     def _describe_instrument(self, instrument):
@@ -428,18 +610,29 @@ class EisAnalysisTool:
         finally:
             self.ps_manager = None
             self.ps_instrument = None
+            self.connection_mode = None
             self._set_disconnected_ui()
             self.log_message("Device disconnected.")
 
-    def _set_connected_ui(self):
-        self.status_label.config(text="Status: Connected", foreground=self.theme["success"])
+    def _set_connected_ui(self, connected_label="Connected"):
+        self.connection_in_progress = False
+        self.cancel_connect_requested = False
+        self.status_label.config(text=f"Status: Connected ({connected_label})", foreground=self.theme["success"])
+        self.connect_btn.config(text="Connect", command=self.start_connect_thread, state="disabled")
         self.disconnect_btn.config(state="normal")
         self.run_test_btn.config(state="normal")
+        if self.connection_mode == "sensit_bt":
+            self.calibrate_btn.config(state="normal")
+        else:
+            self.calibrate_btn.config(state="disabled")
 
     def _set_disconnected_ui(self):
-        self.connect_btn.config(state="normal")
+        self.connection_in_progress = False
+        self.cancel_connect_requested = False
+        self.connect_btn.config(text="Connect", command=self.start_connect_thread, state="normal")
         self.disconnect_btn.config(state="disabled")
         self.run_test_btn.config(state="disabled")
+        self.calibrate_btn.config(state="disabled")
         self.status_label.config(text="Status: Disconnected", foreground=self.theme["danger"])
 
     # --- Plotting Initialization ---
@@ -569,6 +762,25 @@ class EisAnalysisTool:
             self.output_text.see(tk.END)
             self.output_text.configure(state="disabled")
         self.root.after(0, _log)
+
+    def _safe_set_shared_progress_text(self, text):
+        """Safely update shared progress label text if the widget still exists."""
+        try:
+            if self.shared_progress_label is not None and self.shared_progress_label.winfo_exists():
+                self.shared_progress_label.config(text=text)
+        except Exception:
+            pass
+
+    def _destroy_shared_progress_ui(self):
+        """Safely destroy shared progress UI widgets and clear references."""
+        try:
+            if self.shared_progress_frame is not None and self.shared_progress_frame.winfo_exists():
+                self.shared_progress_frame.destroy()
+        except Exception:
+            pass
+        self.shared_progress_frame = None
+        self.shared_progress = None
+        self.shared_progress_label = None
     
     # --- REMOVED get_params_from_gui ---
     # --- REMOVED generate_fake_data ---
@@ -621,6 +833,7 @@ class EisAnalysisTool:
             # Pass the magnitude and frequency data directly
             diagnosis_result = self.diagnose_coating(z_mag, data['frequency'])
             self.log_message(f"Diagnosis: {diagnosis_result}")
+            self.report_bode_data_quality(data['frequency'], z_mag)
 
             # --- Draw full Plots (on main thread) ---
             self.root.after(0, self.draw_plots, data)
@@ -651,6 +864,453 @@ class EisAnalysisTool:
         except Exception as e:
             self.log_message(f"Diagnosis error: {e}")
             return "Could not determine diagnosis."
+
+    def _get_simulated_reference_profile(self):
+        """Load and cache reference Bode profile from built-in simulated CSV."""
+        if self.sim_reference_profile is not None:
+            return self.sim_reference_profile
+
+        ref_path = os.path.join(os.path.dirname(__file__), "11_12_25_test5.csv")
+        if not os.path.exists(ref_path):
+            self.log_message("Data quality check: reference simulated CSV not found; skipping reference match.")
+            return None
+
+        try:
+            df = pd.read_csv(ref_path)
+            required_cols = {'Frequency (Hz)', 'Z (Ω)'}
+            if not required_cols.issubset(df.columns):
+                self.log_message("Data quality check: reference CSV missing Frequency/Z columns.")
+                return None
+
+            freq = pd.to_numeric(df['Frequency (Hz)'], errors='coerce').to_numpy()
+            z_mag = pd.to_numeric(df['Z (Ω)'], errors='coerce').to_numpy()
+
+            mask = np.isfinite(freq) & np.isfinite(z_mag) & (freq > 0) & (z_mag > 0)
+            if np.count_nonzero(mask) < 8:
+                self.log_message("Data quality check: reference CSV has insufficient valid points.")
+                return None
+
+            freq_ref = np.asarray(freq[mask], dtype=float)
+            z_ref = np.asarray(z_mag[mask], dtype=float)
+            order = np.argsort(freq_ref)
+            freq_ref = freq_ref[order]
+            z_ref = z_ref[order]
+
+            self.sim_reference_profile = {
+                "freq": freq_ref,
+                "zmag": z_ref,
+                "logf": np.log10(freq_ref),
+                "logz": np.log10(z_ref),
+            }
+            return self.sim_reference_profile
+        except Exception as e:
+            self.log_message(f"Data quality check: failed to load reference profile ({e}).")
+            return None
+
+    def assess_bode_data_quality(self, freq_data, z_mag_data):
+        """Assess Bode data cleanliness via curve fit, smoothness, and reference matching."""
+        result = {
+            "ok": True,
+            "summary": "Data quality: clean.",
+            "warnings": [],
+            "metrics": {},
+        }
+
+        try:
+            freq = np.asarray(freq_data, dtype=float)
+            z_mag = np.asarray(z_mag_data, dtype=float)
+
+            mask = np.isfinite(freq) & np.isfinite(z_mag) & (freq > 0) & (z_mag > 0)
+            if np.count_nonzero(mask) < 8:
+                result["ok"] = False
+                result["warnings"].append("Not enough valid Bode points for quality check.")
+                result["summary"] = "Data quality warning: insufficient valid points."
+                return result
+
+            freq = freq[mask]
+            z_mag = z_mag[mask]
+            order = np.argsort(freq)
+            freq = freq[order]
+            z_mag = z_mag[order]
+
+            logf = np.log10(freq)
+            logz = np.log10(z_mag)
+
+            fit_degree = 3 if len(logf) >= 12 else 2
+            coeff = np.polyfit(logf, logz, deg=fit_degree)
+            fit_vals = np.polyval(coeff, logf)
+            residuals = logz - fit_vals
+            rmse_fit = float(np.sqrt(np.mean(residuals ** 2)))
+            ss_res = float(np.sum((logz - fit_vals) ** 2))
+            ss_tot = float(np.sum((logz - np.mean(logz)) ** 2))
+            r2_fit = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
+
+            result["metrics"]["fit_rmse_log10"] = rmse_fit
+            result["metrics"]["fit_r2"] = r2_fit
+
+            if len(logf) >= 10:
+                grad1 = np.gradient(logz, logf)
+                grad2 = np.gradient(grad1, logf)
+                roughness = float(np.median(np.abs(grad2)))
+            else:
+                roughness = 0.0
+            result["metrics"]["roughness"] = roughness
+
+            ref = self._get_simulated_reference_profile()
+            if ref is not None:
+                common_min = max(float(np.min(logf)), float(np.min(ref["logf"])))
+                common_max = min(float(np.max(logf)), float(np.max(ref["logf"])))
+                common_mask = (logf >= common_min) & (logf <= common_max)
+
+                if np.count_nonzero(common_mask) >= 6:
+                    test_logf = logf[common_mask]
+                    test_logz = logz[common_mask]
+                    ref_logz = np.interp(test_logf, ref["logf"], ref["logz"])
+                    delta = test_logz - ref_logz
+                    result["metrics"]["reference_mae_log10"] = float(np.mean(np.abs(delta)))
+                    result["metrics"]["reference_max_log10"] = float(np.max(np.abs(delta)))
+                else:
+                    result["metrics"]["reference_mae_log10"] = None
+                    result["metrics"]["reference_max_log10"] = None
+
+            if rmse_fit > 0.12:
+                result["warnings"].append(f"Curve-fit residual is high (RMSE={rmse_fit:.3f} decades).")
+            if r2_fit < 0.94:
+                result["warnings"].append(f"Bode trend fit is weak (R²={r2_fit:.3f}).")
+            if roughness > 0.45:
+                result["warnings"].append(f"Curve roughness is high ({roughness:.3f}).")
+
+            mae_ref = result["metrics"].get("reference_mae_log10")
+            max_ref = result["metrics"].get("reference_max_log10")
+            if mae_ref is not None and mae_ref > 0.22:
+                result["warnings"].append(f"Average deviation vs simulated reference is high ({mae_ref:.3f} decades).")
+            if max_ref is not None and max_ref > 0.55:
+                result["warnings"].append(f"Peak deviation vs simulated reference is high ({max_ref:.3f} decades).")
+
+            if result["warnings"]:
+                result["ok"] = False
+                result["summary"] = "Data quality warning: Bode data looks noisy/mismatched. Check setup."
+            return result
+        except Exception as e:
+            result["ok"] = False
+            result["warnings"] = [f"Quality check failed: {e}"]
+            result["summary"] = "Data quality warning: could not complete quality check."
+            return result
+
+    def report_bode_data_quality(self, freq_data, z_mag_data):
+        """Run quality check and publish warning/details to output log and status label."""
+        quality = self.assess_bode_data_quality(freq_data, z_mag_data)
+        self.log_message(quality["summary"])
+
+        if quality["ok"]:
+            self.root.after(0, self.show_data_quality_on_plots, None)
+            return
+
+        for warning in quality.get("warnings", []):
+            self.log_message(f"Quality detail: {warning}")
+
+        self.root.after(0, self.load_progress_lbl.config, {"text": "Warning: data may be messy — check setup"})
+        warning_text = "Faulty data detected: check wiring, connections, and setup"
+        self.root.after(0, self.show_data_quality_on_plots, warning_text)
+        self.root.after(0, self._show_quality_warning_popup, quality)
+
+    def _show_quality_warning_popup(self, quality):
+        """Show a popup dialog for faulty data quality results."""
+        try:
+            warning_lines = quality.get("warnings", [])[:4]
+            details = "\n".join(f"- {line}" for line in warning_lines)
+            if not details:
+                details = "- Bode data appears noisy or mismatched."
+            messagebox.showwarning(
+                "Faulty Data Warning",
+                "Bode data quality check failed.\n\n"
+                "Please check electrical contacts, leads, and setup before trusting this run.\n\n"
+                f"Details:\n{details}",
+            )
+        except Exception as e:
+            self.log_message(f"Warning popup failed: {e}")
+
+    def _show_calibration_result_popup(self, completed):
+        """Show popup dialog when calibration is completed or stopped."""
+        try:
+            if completed:
+                messagebox.showinfo(
+                    "Calibration Complete",
+                    "Calibration sequence finished successfully (3/3).",
+                )
+            else:
+                messagebox.showwarning(
+                    "Calibration Stopped",
+                    "Calibration sequence was stopped before completion.",
+                )
+        except Exception as e:
+            self.log_message(f"Calibration popup failed: {e}")
+
+    def set_export_buttons_enabled(self, enabled):
+        """Enable/disable plot export buttons together."""
+        state = "normal" if enabled else "disabled"
+        for attr in (
+            "export_nyquist_btn",
+            "export_nyquist_cloud_btn",
+            "export_bode_btn",
+            "export_bode_cloud_btn",
+        ):
+            btn = getattr(self, attr, None)
+            if btn is not None:
+                try:
+                    btn.config(state=state)
+                except Exception:
+                    pass
+
+    def show_data_quality_on_plots(self, warning_text):
+        """Display or clear a data-quality warning banner on Nyquist and Bode plots."""
+        try:
+            if warning_text:
+                badge_style = dict(boxstyle='round', facecolor=self.theme['diag_fail'], alpha=0.92)
+
+                if self.nyquist_quality_text is None:
+                    self.nyquist_quality_text = self.nyquist_ax.text(
+                        0.5, 0.04, warning_text,
+                        transform=self.nyquist_ax.transAxes,
+                        fontsize=11, fontweight='bold', color='white',
+                        horizontalalignment='center', verticalalignment='bottom',
+                        bbox=badge_style,
+                    )
+                else:
+                    self.nyquist_quality_text.set_text(warning_text)
+                    self.nyquist_quality_text.set_bbox(badge_style)
+                    self.nyquist_quality_text.set_visible(True)
+
+                if self.bode_quality_text is None:
+                    self.bode_quality_text = self.bode_ax_mag.text(
+                        0.98, 0.96, warning_text,
+                        transform=self.bode_ax_mag.transAxes,
+                        fontsize=11, fontweight='bold', color='white',
+                        horizontalalignment='right', verticalalignment='top',
+                        bbox=badge_style,
+                    )
+                else:
+                    self.bode_quality_text.set_text(warning_text)
+                    self.bode_quality_text.set_bbox(badge_style)
+                    self.bode_quality_text.set_visible(True)
+            else:
+                if self.nyquist_quality_text is not None:
+                    self.nyquist_quality_text.set_visible(False)
+                if self.bode_quality_text is not None:
+                    self.bode_quality_text.set_visible(False)
+
+            try:
+                self.nyquist_canvas.draw_idle()
+            except Exception:
+                pass
+            try:
+                self.bode_canvas.draw_idle()
+            except Exception:
+                pass
+        except Exception as e:
+            self.log_message(f"Failed to update quality warning on plots: {e}")
+
+    def show_calibration_status_on_plots(self, status_text):
+        """Display or clear a prominent calibration-status banner on both plots."""
+        try:
+            if status_text:
+                badge_style = dict(boxstyle='round', facecolor=self.theme['warning'], alpha=0.95)
+
+                if self.nyquist_calibration_text is None:
+                    self.nyquist_calibration_text = self.nyquist_ax.text(
+                        0.5, 0.90, status_text,
+                        transform=self.nyquist_ax.transAxes,
+                        fontsize=14, fontweight='bold', color='black',
+                        horizontalalignment='center', verticalalignment='top',
+                        bbox=badge_style,
+                    )
+                else:
+                    self.nyquist_calibration_text.set_text(status_text)
+                    self.nyquist_calibration_text.set_bbox(badge_style)
+                    self.nyquist_calibration_text.set_visible(True)
+
+                if self.bode_calibration_text is None:
+                    self.bode_calibration_text = self.bode_ax_mag.text(
+                        0.5, 0.90, status_text,
+                        transform=self.bode_ax_mag.transAxes,
+                        fontsize=14, fontweight='bold', color='black',
+                        horizontalalignment='center', verticalalignment='top',
+                        bbox=badge_style,
+                    )
+                else:
+                    self.bode_calibration_text.set_text(status_text)
+                    self.bode_calibration_text.set_bbox(badge_style)
+                    self.bode_calibration_text.set_visible(True)
+            else:
+                if self.nyquist_calibration_text is not None:
+                    self.nyquist_calibration_text.set_visible(False)
+                if self.bode_calibration_text is not None:
+                    self.bode_calibration_text.set_visible(False)
+
+            try:
+                self.nyquist_canvas.draw_idle()
+            except Exception:
+                pass
+            try:
+                self.bode_canvas.draw_idle()
+            except Exception:
+                pass
+        except Exception as e:
+            self.log_message(f"Failed to update calibration status on plots: {e}")
+
+    def clear_bode_threshold_indicator(self):
+        """Remove Bode threshold-evaluation indicator artists if present."""
+        for attr_name in ("bode_eval_vline", "bode_eval_hline", "bode_eval_point", "bode_eval_text"):
+            artist = getattr(self, attr_name, None)
+            if artist is None:
+                continue
+            try:
+                artist.remove()
+            except Exception:
+                try:
+                    artist.set_visible(False)
+                except Exception:
+                    pass
+            setattr(self, attr_name, None)
+
+    def show_bode_threshold_indicator(self, freq_data, z_mag_data):
+        """Show which lowest-frequency Bode point is used for threshold evaluation."""
+        try:
+            freq = np.asarray(freq_data, dtype=float)
+            z_mag = np.asarray(z_mag_data, dtype=float)
+            valid = np.isfinite(freq) & np.isfinite(z_mag) & (freq > 0) & (z_mag > 0)
+            if np.count_nonzero(valid) == 0:
+                return
+
+            freq = freq[valid]
+            z_mag = z_mag[valid]
+            idx = int(np.argmin(freq))
+            eval_freq = float(freq[idx])
+            eval_z = float(z_mag[idx])
+
+            self.clear_bode_threshold_indicator()
+
+            self.bode_eval_vline = self.bode_ax_mag.axvline(
+                eval_freq,
+                color=self.theme["warning"],
+                linestyle='--',
+                linewidth=1.6,
+                alpha=0.95,
+                zorder=20,
+            )
+            self.bode_eval_hline = self.bode_ax_mag.axhline(
+                eval_z,
+                color=self.theme["warning"],
+                linestyle='--',
+                linewidth=1.4,
+                alpha=0.9,
+                zorder=20,
+            )
+            (self.bode_eval_point,) = self.bode_ax_mag.plot(
+                [eval_freq],
+                [eval_z],
+                marker='s',
+                markersize=7,
+                markerfacecolor=self.theme["warning"],
+                markeredgecolor='black',
+                linestyle='None',
+                zorder=25,
+            )
+            self.bode_eval_text = self.bode_ax_mag.text(
+                0.98,
+                0.02,
+                f"Threshold evaluation point\nlowest f = {eval_freq:.2e} Hz, |Z| = {eval_z:.2e} Ω",
+                transform=self.bode_ax_mag.transAxes,
+                horizontalalignment='right',
+                verticalalignment='bottom',
+                fontsize=9,
+                color=self.theme["text"],
+                bbox=dict(
+                    boxstyle='round',
+                    facecolor=self.theme["panel_alt"],
+                    edgecolor=self.theme["warning"],
+                    alpha=0.95,
+                ),
+                zorder=30,
+            )
+            self.bode_canvas.draw_idle()
+        except Exception as e:
+            self.log_message(f"Failed to draw Bode threshold indicator: {e}")
+
+    def clear_plot_status_overlays(self):
+        """Hide previous run's diagnosis and quality warnings from both plots."""
+        try:
+            if self.nyquist_diag_text is not None:
+                try:
+                    self.nyquist_diag_text.set_visible(False)
+                except Exception:
+                    pass
+            if self.bode_diag_text is not None:
+                try:
+                    self.bode_diag_text.set_visible(False)
+                except Exception:
+                    pass
+
+            if self.nyquist_quality_text is not None:
+                try:
+                    self.nyquist_quality_text.set_visible(False)
+                except Exception:
+                    pass
+            if self.bode_quality_text is not None:
+                try:
+                    self.bode_quality_text.set_visible(False)
+                except Exception:
+                    pass
+
+            if self.nyquist_calibration_text is not None:
+                try:
+                    self.nyquist_calibration_text.set_visible(False)
+                except Exception:
+                    pass
+            if self.bode_calibration_text is not None:
+                try:
+                    self.bode_calibration_text.set_visible(False)
+                except Exception:
+                    pass
+
+            self.clear_bode_threshold_indicator()
+
+            try:
+                self.nyquist_canvas.draw_idle()
+            except Exception:
+                pass
+            try:
+                self.bode_canvas.draw_idle()
+            except Exception:
+                pass
+        except Exception as e:
+            self.log_message(f"Failed to clear plot status overlays: {e}")
+
+    def log_test_separator(self):
+        """Write a clear separator in the output log at the start of each run."""
+        self.test_run_counter += 1
+        mode_label = {
+            "sensit_bt": "Sensit BT",
+            "simulated": "Simulated Mode",
+            "messy": "Messy Data",
+            "calibration": "Calibration",
+        }.get(self.connection_mode, "Unknown Mode")
+
+        separator = "=" * 66
+        self.log_message(separator)
+        self.log_message(f"TEST RUN {self.test_run_counter} STARTED • Mode: {mode_label}")
+        self.log_message(separator)
+
+    def log_calibration_stage_separator(self, test_index):
+        """Write a clear separator for each calibration stage in the output log."""
+        separator = "-" * 66
+        if test_index < 3:
+            stage_text = f"CALIBRATION STAGE {test_index}/3"
+        else:
+            stage_text = "FINAL MEASUREMENT STAGE 3/3"
+        self.log_message(separator)
+        self.log_message(stage_text)
+        self.log_message(separator)
     
     def draw_plots(self, data):
         try:
@@ -680,6 +1340,7 @@ class EisAnalysisTool:
             self.init_bode_plot() 
             self.bode_ax_mag.loglog(freq, z_mag, 'o-', markersize=4, color=self.theme["accent"], zorder=10)
             self.bode_ax_mag.plot_data = (freq, z_mag)
+            self.show_bode_threshold_indicator(freq, z_mag)
             self.bode_canvas.draw()
             
             self.log_message("Plots updated.")
@@ -691,8 +1352,11 @@ class EisAnalysisTool:
     # --- New: Streaming load for Run Test ---
     def start_run_test_thread(self):
         """Starts a real EIS measurement using the connected PalmSens instrument."""
-        if self.ps_manager is None:
-            self.log_message("ERROR: No instrument connected. Connect via Bluetooth first.")
+        if self.connection_mode is None:
+            self.log_message("ERROR: No device connected. Click Connect first.")
+            return
+        if self.connection_mode == "sensit_bt" and self.ps_manager is None:
+            self.log_message("ERROR: No Sensit BT instrument connected. Click Connect first.")
             return
         if self.measurement_in_progress:
             self.log_message("Measurement already in progress.")
@@ -703,8 +1367,13 @@ class EisAnalysisTool:
         self.measurement_start_time = time.time()
         self.last_point_time = self.measurement_start_time
         self.last_point_count = 0
+        self.set_export_buttons_enabled(False)
+        self.log_test_separator()
+        # Clear prior run annotations before starting a new test.
+        self.clear_plot_status_overlays()
         # Disable button and switch to log
         self.run_test_btn.config(state="disabled")
+        self.calibrate_btn.config(state="disabled")
         self.stop_test_btn.config(state="normal")
         # Show the Bode plot while streaming
         try:
@@ -717,11 +1386,7 @@ class EisAnalysisTool:
         try:
             bode_tab_widget = self.notebook.nametowidget(self.notebook.tabs()[2])
             # If a previous shared widget exists, remove it
-            try:
-                if hasattr(self, 'shared_progress_frame') and self.shared_progress_frame.winfo_exists():
-                    self.shared_progress_frame.destroy()
-            except Exception:
-                pass
+            self._destroy_shared_progress_ui()
 
             self.shared_progress_frame = ttk.Frame(bode_tab_widget, style="Card.TFrame")
             # pack it before the save button so it appears above
@@ -745,9 +1410,26 @@ class EisAnalysisTool:
             pass
 
         self.root.after(0, self.progress_var.set, 0.0)
-        self.load_progress_lbl.config(text="Starting EIS measurement...")
+        if self.connection_mode == "simulated":
+            self.load_progress_lbl.config(text="Starting simulated test...")
+        elif self.connection_mode == "messy":
+            self.load_progress_lbl.config(text="Starting messy data simulation...")
+        elif self.connection_mode == "calibration":
+            self.load_progress_lbl.config(text="Starting calibration sequence (3 tests)...")
+        else:
+            self.load_progress_lbl.config(text="Starting EIS measurement...")
         self.root.after(5000, self.measurement_watchdog_tick)
-        threading.Thread(target=self.run_real_eis_measurement, daemon=True).start()
+        if self.connection_mode == "simulated":
+            csv_path = os.path.join(os.path.dirname(__file__), "11_12_25_test5.csv")
+            threading.Thread(target=self.stream_load_data, args=(csv_path,), daemon=True).start()
+        elif self.connection_mode == "messy":
+            csv_path = os.path.join(os.path.dirname(__file__), "11_12_25_test5.csv")
+            threading.Thread(target=self.stream_load_data_messy, args=(csv_path,), daemon=True).start()
+        elif self.connection_mode == "calibration":
+            csv_path = os.path.join(os.path.dirname(__file__), "11_12_25_test5.csv")
+            threading.Thread(target=self.run_calibration_sequence, args=(csv_path,), daemon=True).start()
+        else:
+            threading.Thread(target=self.run_real_eis_measurement, daemon=True).start()
 
     def request_stop_measurement(self):
         """Request cancellation of the active EIS measurement."""
@@ -758,8 +1440,274 @@ class EisAnalysisTool:
         self.stop_requested = True
         self.stop_test_btn.config(state="disabled")
         self.load_progress_lbl.config(text="Stopping measurement...")
-        self.log_message("Stop requested. Sending stop signal to potentiostat...")
-        threading.Thread(target=self._send_stop_signal_to_instrument, daemon=True).start()
+        if self.connection_mode in ("simulated", "messy", "calibration"):
+            self.log_message("Stop requested for simulated test.")
+        else:
+            self.log_message("Stop requested. Sending stop signal to potentiostat...")
+            threading.Thread(target=self._send_stop_signal_to_instrument, daemon=True).start()
+
+    def start_calibration_thread(self):
+        """Run 3 real calibration tests on connected Sensit BT instrument."""
+        if self.connection_mode != "sensit_bt" or self.ps_manager is None:
+            self.log_message("ERROR: Calibration requires an active Sensit BT connection.")
+            return
+        if self.measurement_in_progress:
+            self.log_message("Measurement already in progress.")
+            return
+
+        self.measurement_in_progress = True
+        self.stop_requested = False
+        self.measurement_start_time = time.time()
+        self.last_point_time = self.measurement_start_time
+        self.last_point_count = 0
+        self.set_export_buttons_enabled(False)
+        self.log_test_separator()
+        self.clear_plot_status_overlays()
+
+        self.run_test_btn.config(state="disabled")
+        self.calibrate_btn.config(state="disabled")
+        self.stop_test_btn.config(state="normal")
+
+        try:
+            self.notebook.select(self.notebook.tabs()[2])
+        except Exception:
+            self.notebook.select(self.notebook.tabs()[-1])
+
+        try:
+            bode_tab_widget = self.notebook.nametowidget(self.notebook.tabs()[2])
+            self._destroy_shared_progress_ui()
+            self.shared_progress_frame = ttk.Frame(bode_tab_widget, style="Card.TFrame")
+            self.shared_progress = ttk.Progressbar(
+                self.shared_progress_frame,
+                style='Green.Horizontal.TProgressbar',
+                orient='horizontal',
+                mode='determinate',
+                variable=self.progress_var,
+                maximum=100,
+            )
+            self.shared_progress.pack(side='left', fill='x', expand=True, padx=(0, 8))
+            self.shared_progress_label = ttk.Label(self.shared_progress_frame, text='0%', style="Card.TLabel")
+            self.shared_progress_label.pack(side='right')
+            try:
+                self.shared_progress_frame.pack(side='bottom', fill='x', padx=10, pady=(6, 2), before=self.export_bode_btn)
+            except Exception:
+                self.shared_progress_frame.pack(side='bottom', fill='x', padx=10, pady=(6, 2))
+        except Exception:
+            pass
+
+        self.root.after(0, self.progress_var.set, 0.0)
+        self.load_progress_lbl.config(text="Starting real calibration sequence (3 tests)...")
+        self.root.after(5000, self.measurement_watchdog_tick)
+        threading.Thread(target=self.run_real_calibration_sequence, daemon=True).start()
+
+    def run_real_calibration_sequence(self):
+        """Execute 3 real EIS tests; first two are calibration passes, third is final."""
+        try:
+            for test_index in range(1, 4):
+                if self.stop_requested:
+                    self.log_message("Calibration sequence stopped by user.")
+                    break
+
+                self.log_calibration_stage_separator(test_index)
+                self.root.after(0, self.clear_plot_status_overlays)
+                if test_index < 3:
+                    self.log_message(f"Calibration: Test {test_index}/3")
+                    self.root.after(0, self.load_progress_lbl.config, {"text": f"Calibration: Test {test_index}/3"})
+                    self.root.after(0, self.show_calibration_status_on_plots, f"CALIBRATING: TEST {test_index}/3")
+                else:
+                    self.log_message("Calibration complete. Running final test (3/3)...")
+                    self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration complete. Running final test (3/3)"})
+                    self.root.after(0, self.show_calibration_status_on_plots, "FINAL TEST: 3/3")
+
+                self.root.after(0, self.progress_var.set, 0.0)
+                self.root.after(0, self._safe_set_shared_progress_text, "0%")
+
+                self.run_real_eis_measurement(
+                    manage_lifecycle=False,
+                    is_calibration_stage=True,
+                    calibration_stage=test_index,
+                    calibration_total=3,
+                    final_calibration_stage=(test_index == 3),
+                )
+
+                if self.stop_requested:
+                    break
+
+                if test_index < 3:
+                    self.log_message(f"Calibration: Test {test_index}/3 complete.")
+                    time.sleep(0.6)
+
+            self.root.after(0, self.show_calibration_status_on_plots, None)
+            self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+            if self.connection_mode == "sensit_bt" and self.ps_manager is not None:
+                self.root.after(0, self.calibrate_btn.config, {"state": "normal"})
+            else:
+                self.root.after(0, self.calibrate_btn.config, {"state": "disabled"})
+            self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+
+            if self.stop_requested:
+                self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration sequence stopped"})
+                self.root.after(0, self._safe_set_shared_progress_text, "Stopped")
+                self.root.after(0, self._show_calibration_result_popup, False)
+            else:
+                self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration sequence finished"})
+                self.root.after(0, self.progress_var.set, 100.0)
+                self.root.after(0, self._safe_set_shared_progress_text, "100%")
+                self.root.after(0, self._show_calibration_result_popup, True)
+                self.root.after(0, self.set_export_buttons_enabled, True)
+
+            self.measurement_in_progress = False
+            self.stop_requested = False
+        except Exception as e:
+            self.log_message(f"Real calibration sequence failed: {e}")
+            self.root.after(0, self.show_calibration_status_on_plots, None)
+            self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+            if self.connection_mode == "sensit_bt" and self.ps_manager is not None:
+                self.root.after(0, self.calibrate_btn.config, {"state": "normal"})
+            else:
+                self.root.after(0, self.calibrate_btn.config, {"state": "disabled"})
+            self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+            self.root.after(0, self.progress_var.set, 0.0)
+            self.root.after(0, self._safe_set_shared_progress_text, "0%")
+            self.measurement_in_progress = False
+            self.stop_requested = False
+
+    def run_calibration_sequence(self, filepath):
+        """Run simulated test three times; first two runs are calibration passes."""
+        try:
+            self.log_message(f"Starting calibration sequence using {filepath}")
+            if not os.path.exists(filepath):
+                self.log_message("ERROR: CSV file not found in project directory.")
+                self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+                self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+                self.measurement_in_progress = False
+                self.stop_requested = False
+                return
+
+            df = pd.read_csv(filepath)
+            required_cols = {'Frequency (Hz)', "Z' (Ω)", "-Z'' (Ω)", "Z (Ω)", "-Phase (°)", "Time (s)"}
+            if not required_cols.issubset(df.columns):
+                self.log_message("ERROR: CSV file is missing required columns for calibration mode.")
+                self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+                self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+                self.measurement_in_progress = False
+                self.stop_requested = False
+                return
+
+            freq = pd.to_numeric(df['Frequency (Hz)'], errors='coerce').to_numpy(dtype=float)
+            z_real = pd.to_numeric(df["Z' (Ω)"], errors='coerce').to_numpy(dtype=float)
+            z_imag_neg = pd.to_numeric(df["-Z'' (Ω)"], errors='coerce').to_numpy(dtype=float)
+            z_imag = -z_imag_neg
+
+            valid = np.isfinite(freq) & np.isfinite(z_real) & np.isfinite(z_imag) & (freq > 0)
+            freq = freq[valid]
+            z_real = z_real[valid]
+            z_imag = z_imag[valid]
+
+            if len(freq) < 8:
+                self.log_message("ERROR: Not enough valid points for calibration mode.")
+                self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+                self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+                self.measurement_in_progress = False
+                self.stop_requested = False
+                return
+
+            # Preserve simulated sweep direction (high -> low frequency)
+            order = np.argsort(freq)[::-1]
+            freq = freq[order]
+            z_real = z_real[order]
+            z_imag = z_imag[order]
+
+            n = len(freq)
+            total_time_per_test = 8.0
+            interval = total_time_per_test / max(n, 1)
+
+            for test_index in range(1, 4):
+                if self.stop_requested:
+                    self.log_message("Calibration sequence stopped by user.")
+                    break
+
+                self.log_calibration_stage_separator(test_index)
+                self.root.after(0, self.clear_plot_status_overlays)
+
+                if test_index < 3:
+                    self.log_message(f"Calibration: Test {test_index}/3")
+                    self.root.after(0, self.load_progress_lbl.config, {"text": f"Calibration: Test {test_index}/3"})
+                    self.root.after(0, self.show_calibration_status_on_plots, f"CALIBRATING: TEST {test_index}/3")
+                else:
+                    self.log_message("Calibration complete. Running final test (3/3)...")
+                    self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration complete. Running final test (3/3)"})
+                    self.root.after(0, self.show_calibration_status_on_plots, "FINAL TEST: 3/3")
+
+                self.root.after(0, self.progress_var.set, 0.0)
+                self.root.after(0, self._safe_set_shared_progress_text, "0%")
+
+                x_buf, yr_buf, yi_buf = [], [], []
+                for i in range(n):
+                    if self.stop_requested:
+                        self.log_message("Calibration sequence stopped by user.")
+                        break
+
+                    x_buf.append(freq[i])
+                    yr_buf.append(z_real[i])
+                    yi_buf.append(z_imag[i])
+
+                    percent = (i + 1) / n * 100.0
+                    if test_index < 3:
+                        self.root.after(0, self.load_progress_lbl.config, {"text": f"Calibration: Test {test_index}/3 • {i+1}/{n} points"})
+                    else:
+                        self.root.after(0, self.load_progress_lbl.config, {"text": f"Final Test: 3/3 • {i+1}/{n} points"})
+                    self.root.after(0, self.progress_var.set, percent)
+                    self.root.after(0, self._safe_set_shared_progress_text, f"{percent:.0f}%")
+                    self.root.after(0, self.update_plots_incremental, np.array(x_buf), np.array(yr_buf), np.array(yi_buf))
+
+                    time.sleep(interval)
+
+                if self.stop_requested:
+                    break
+
+                if test_index < 3:
+                    self.log_message(f"Calibration: Test {test_index}/3 complete.")
+                    self.root.after(0, self.progress_var.set, 100.0)
+                    self.root.after(0, self._safe_set_shared_progress_text, "100%")
+                    time.sleep(0.6)
+                    continue
+
+                # Final pass: run diagnosis and quality checks.
+                self.root.after(0, self.show_calibration_status_on_plots, None)
+                current_freq = np.array(x_buf)
+                current_z_mag = np.sqrt(np.array(yr_buf) ** 2 + np.array(yi_buf) ** 2)
+                diagnosis_result = self.diagnose_coating(current_z_mag, current_freq)
+                self.log_message(f"Diagnosis: {diagnosis_result}")
+                self.report_bode_data_quality(current_freq, current_z_mag)
+                self.root.after(0, self.show_bode_threshold_indicator, current_freq, current_z_mag)
+                self.root.after(0, self.show_diagnosis_on_plots, diagnosis_result)
+
+            self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+            self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+            if self.stop_requested:
+                self.root.after(0, self.show_calibration_status_on_plots, None)
+                self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration sequence stopped"})
+                self.root.after(0, self._safe_set_shared_progress_text, "Stopped")
+                self.root.after(0, self._show_calibration_result_popup, False)
+            else:
+                self.root.after(0, self.show_calibration_status_on_plots, None)
+                self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration sequence finished"})
+                self.root.after(0, self.progress_var.set, 100.0)
+                self.root.after(0, self._safe_set_shared_progress_text, "100%")
+                self.root.after(0, self._show_calibration_result_popup, True)
+                self.root.after(0, self.set_export_buttons_enabled, True)
+
+            self.measurement_in_progress = False
+            self.stop_requested = False
+        except Exception as e:
+            self.log_message(f"Calibration sequence failed: {e}")
+            self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+            self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+            self.root.after(0, self.progress_var.set, 0.0)
+            self.root.after(0, self._safe_set_shared_progress_text, "0%")
+            self.measurement_in_progress = False
+            self.stop_requested = False
 
     def _send_stop_signal_to_instrument(self):
         """Best-effort stop/abort command dispatch for different SDK versions."""
@@ -852,7 +1800,7 @@ class EisAnalysisTool:
         )
         return method
 
-    def run_real_eis_measurement(self):
+    def run_real_eis_measurement(self, manage_lifecycle=True, is_calibration_stage=False, calibration_stage=1, calibration_total=1, final_calibration_stage=True):
         """Execute EIS measurement via PyPalmSens and stream callback data into plots."""
         freq_buf, zre_buf, zim_buf = [], [], []
         seen_points = set()
@@ -1005,10 +1953,7 @@ class EisAnalysisTool:
                     percent = min(100.0, (i / n) * 100.0)
                     self.root.after(0, self.progress_var.set, percent)
                     self.root.after(0, self.load_progress_lbl.config, {"text": f"Measuring: {i}/{n} points"})
-                    try:
-                        self.root.after(0, self.shared_progress_label.config, {"text": f"{percent:.0f}%"})
-                    except Exception:
-                        pass
+                    self.root.after(0, self._safe_set_shared_progress_text, f"{percent:.0f}%")
                     
                     # Throttle plot updates to prevent overwhelming the UI and blocking mouse events
                     current_time = time.time() * 1000  # ms
@@ -1020,11 +1965,18 @@ class EisAnalysisTool:
 
         try:
             method = self.build_eis_method()
-            self.log_message(
-                f"Running EIS over Bluetooth: fmax={method.max_frequency:.2e} Hz, "
-                f"fmin={method.min_frequency:.2e} Hz, n={method.n_frequencies}, "
-                f"Vac={method.ac_potential:.3f} V"
-            )
+            if is_calibration_stage:
+                self.log_message(
+                    f"Running calibration stage {calibration_stage}/{calibration_total} over Bluetooth: "
+                    f"fmax={method.max_frequency:.2e} Hz, fmin={method.min_frequency:.2e} Hz, "
+                    f"n={method.n_frequencies}, Vac={method.ac_potential:.3f} V"
+                )
+            else:
+                self.log_message(
+                    f"Running EIS over Bluetooth: fmax={method.max_frequency:.2e} Hz, "
+                    f"fmin={method.min_frequency:.2e} Hz, n={method.n_frequencies}, "
+                    f"Vac={method.ac_potential:.3f} V"
+                )
 
             measurement = self.ps_manager.measure(method, callback=eis_callback)
             self.log_message(f"Measurement finished: {measurement.title}")
@@ -1043,9 +1995,12 @@ class EisAnalysisTool:
                 z_mag = np.sqrt(np.array(zre_buf) ** 2 + np.array(zim_buf) ** 2)
                 # Final plot update to show all data
                 self.root.after(0, self.update_plots_incremental, np.array(freq_buf), np.array(zre_buf), np.array(zim_buf))
-                diagnosis_result = self.diagnose_coating(z_mag, np.array(freq_buf))
-                self.log_message(f"Diagnosis: {diagnosis_result}")
-                self.root.after(0, self.show_diagnosis_on_plots, diagnosis_result)
+                if (not is_calibration_stage) or final_calibration_stage:
+                    diagnosis_result = self.diagnose_coating(z_mag, np.array(freq_buf))
+                    self.log_message(f"Diagnosis: {diagnosis_result}")
+                    self.report_bode_data_quality(np.array(freq_buf), z_mag)
+                    self.root.after(0, self.show_bode_threshold_indicator, np.array(freq_buf), z_mag)
+                    self.root.after(0, self.show_diagnosis_on_plots, diagnosis_result)
 
             if self.stop_requested:
                 self.root.after(0, self.load_progress_lbl.config, {"text": "Measurement stopped"})
@@ -1053,10 +2008,8 @@ class EisAnalysisTool:
             else:
                 self.root.after(0, self.progress_var.set, 100.0)
                 self.root.after(0, self.load_progress_lbl.config, {"text": "Test finished"})
-            try:
-                self.root.after(0, self.shared_progress_label.config, {"text": "100%" if not self.stop_requested else "Stopped"})
-            except Exception:
-                pass
+                self.root.after(0, self.set_export_buttons_enabled, True)
+            self.root.after(0, self._safe_set_shared_progress_text, "100%" if not self.stop_requested else "Stopped")
         except Exception as e:
             if self.stop_requested:
                 self.log_message("Measurement stop completed.")
@@ -1065,15 +2018,17 @@ class EisAnalysisTool:
                 self.log_message(f"Real EIS measurement failed: {e}")
                 self.root.after(0, self.progress_var.set, 0.0)
                 self.root.after(0, self.load_progress_lbl.config, {"text": "Measurement failed"})
-            try:
-                self.root.after(0, self.shared_progress_label.config, {"text": "0%" if not self.stop_requested else "Stopped"})
-            except Exception:
-                pass
+            self.root.after(0, self._safe_set_shared_progress_text, "0%" if not self.stop_requested else "Stopped")
         finally:
-            self.measurement_in_progress = False
-            self.stop_requested = False
-            self.root.after(0, self.run_test_btn.config, {"state": "normal"})
-            self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+            if manage_lifecycle:
+                self.measurement_in_progress = False
+                self.stop_requested = False
+                self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+                if self.connection_mode == "sensit_bt" and self.ps_manager is not None:
+                    self.root.after(0, self.calibrate_btn.config, {"state": "normal"})
+                else:
+                    self.root.after(0, self.calibrate_btn.config, {"state": "disabled"})
+                self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
 
     def stream_load_data(self, filepath):
         """Reads CSV then streams data points progressively over the sample time."""
@@ -1108,6 +2063,10 @@ class EisAnalysisTool:
             yi_buf = []
 
             for i in range(n):
+                if self.stop_requested:
+                    self.log_message("Simulated measurement stopped by user.")
+                    break
+
                 x_buf.append(freq[i])
                 yr_buf.append(z_real[i])
                 yi_buf.append(z_imag[i])
@@ -1118,51 +2077,181 @@ class EisAnalysisTool:
                 # Update progress variable
                 self.root.after(0, self.progress_var.set, percent)
                 # Update shared progress label if present
-                try:
-                    self.root.after(0, self.shared_progress_label.config, {"text": f"{percent:.0f}%"})
-                except Exception:
-                    pass
+                self.root.after(0, self._safe_set_shared_progress_text, f"{percent:.0f}%")
 
                 # Update plots with current subset
                 self.root.after(0, self.update_plots_incremental, np.array(x_buf), np.array(yr_buf), np.array(yi_buf))
 
                 time.sleep(interval)
 
-            self.log_message("Test complete. Full data loaded.")
-            # Determine coating health based on the last impedance magnitude
-            try:
-                # Full magnitude using original arrays
-                full_z_mag = np.sqrt(z_real**2 + z_imag**2)
-                diagnosis_result = self.diagnose_coating(full_z_mag, freq)
-                self.log_message(f"Diagnosis: {diagnosis_result}")
-                # Show diagnosis visually on plots
-                self.root.after(0, self.show_diagnosis_on_plots, diagnosis_result)
-            except Exception as e:
-                self.log_message(f"Diagnosis failed: {e}")
-            finally:
-                # destroy shared progress UI if present
+            if len(x_buf) > 0:
+                self.log_message("Test complete. Full data loaded." if not self.stop_requested else "Test stopped.")
+                # Determine coating health based on the measured impedance magnitude
                 try:
-                    if hasattr(self, 'shared_progress_frame') and self.shared_progress_frame.winfo_exists():
-                        self.root.after(0, self.shared_progress_frame.destroy)
-                except Exception:
-                    pass
+                    current_z_mag = np.sqrt(np.array(yr_buf)**2 + np.array(yi_buf)**2)
+                    current_freq = np.array(x_buf)
+                    diagnosis_result = self.diagnose_coating(current_z_mag, current_freq)
+                    self.log_message(f"Diagnosis: {diagnosis_result}")
+                    self.report_bode_data_quality(current_freq, current_z_mag)
+                    self.root.after(0, self.show_bode_threshold_indicator, current_freq, current_z_mag)
+                    # Show diagnosis visually on plots
+                    self.root.after(0, self.show_diagnosis_on_plots, diagnosis_result)
+                except Exception as e:
+                    self.log_message(f"Diagnosis failed: {e}")
+
+            # destroy shared progress UI if present
+            self.root.after(0, self._destroy_shared_progress_ui)
             # Re-enable button and reset progress
             self.root.after(0, self.run_test_btn.config, {"state": "normal"})
-            self.root.after(0, self.load_progress_lbl.config, {"text": "Test finished"})
-            self.root.after(0, self.progress_var.set, 100.0)
-            try:
-                self.root.after(0, self.shared_progress_label.config, {"text": "100%"})
-            except Exception:
-                pass
+            self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+            self.root.after(0, self.load_progress_lbl.config, {"text": "Test finished" if not self.stop_requested else "Measurement stopped"})
+            if not self.stop_requested:
+                self.root.after(0, self.progress_var.set, 100.0)
+                self.root.after(0, self.set_export_buttons_enabled, True)
+            self.root.after(0, self._safe_set_shared_progress_text, "100%" if not self.stop_requested else "Stopped")
+            self.measurement_in_progress = False
+            self.stop_requested = False
 
         except Exception as e:
             self.log_message(f"Error streaming test data: {e}")
             self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+            self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
             self.root.after(0, self.progress_var.set, 0.0)
-            try:
-                self.root.after(0, self.shared_progress_label.config, {"text": "0%"})
-            except Exception:
-                pass
+            self.root.after(0, self._safe_set_shared_progress_text, "0%")
+            self.measurement_in_progress = False
+            self.stop_requested = False
+
+    def stream_load_data_messy(self, filepath):
+        """Stream a noisy/distorted variant of built-in simulated data for setup quality testing."""
+        try:
+            self.log_message(f"Starting messy-data test using {filepath}")
+            if not os.path.exists(filepath):
+                self.log_message("ERROR: CSV file not found in project directory.")
+                self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+                self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+                self.measurement_in_progress = False
+                self.stop_requested = False
+                return
+
+            df = pd.read_csv(filepath)
+            required_cols = {'Frequency (Hz)', "Z' (Ω)", "-Z'' (Ω)", "Z (Ω)", "-Phase (°)", "Time (s)"}
+            if not required_cols.issubset(df.columns):
+                self.log_message("ERROR: CSV file is missing required columns for messy streaming test.")
+                self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+                self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+                self.measurement_in_progress = False
+                self.stop_requested = False
+                return
+
+            freq = pd.to_numeric(df['Frequency (Hz)'], errors='coerce').to_numpy(dtype=float)
+            z_real_base = pd.to_numeric(df["Z' (Ω)"], errors='coerce').to_numpy(dtype=float)
+            z_imag_neg_base = pd.to_numeric(df["-Z'' (Ω)"], errors='coerce').to_numpy(dtype=float)
+            z_imag_base = -z_imag_neg_base
+
+            valid = np.isfinite(freq) & np.isfinite(z_real_base) & np.isfinite(z_imag_base) & (freq > 0)
+            freq = freq[valid]
+            z_real_base = z_real_base[valid]
+            z_imag_base = z_imag_base[valid]
+
+            if len(freq) < 8:
+                self.log_message("ERROR: Not enough valid points to generate messy data.")
+                self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+                self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+                self.measurement_in_progress = False
+                self.stop_requested = False
+                return
+
+            rng = np.random.default_rng(20260226)
+            # Keep sweep direction high -> low frequency for consistency with real/simulated test.
+            order = np.argsort(freq)[::-1]
+            freq = freq[order]
+            z_real_base = z_real_base[order]
+            z_imag_base = z_imag_base[order]
+
+            # Build stronger "bad connection" artifacts: heavy ripple, drift, broadband noise, and spikes.
+            normalized = np.linspace(0.0, 1.0, len(freq))
+            ripple = 0.42 * np.sin(2 * np.pi * 5.1 * normalized)
+            drift = 0.55 * (normalized - 0.5)
+            burst = 0.18 * np.sign(np.sin(2 * np.pi * 9.0 * normalized + 0.7))
+            mag_scale = 1.0 + ripple + drift
+            mag_scale = np.clip(mag_scale + burst, 0.20, 2.8)
+
+            z_real = z_real_base * mag_scale * (1.0 + rng.normal(0.0, 0.22, size=len(freq)))
+            z_imag = z_imag_base * mag_scale * (1.0 + rng.normal(0.0, 0.26, size=len(freq)))
+
+            # Inject a handful of outlier spikes to emulate loose leads/contact issues.
+            n_spikes = max(6, len(freq) // 7)
+            spike_idx = rng.choice(len(freq), size=n_spikes, replace=False)
+            spike_factor = rng.uniform(2.2, 5.0, size=n_spikes)
+            z_real[spike_idx] *= spike_factor
+            z_imag[spike_idx] *= spike_factor
+
+            # Add occasional dip-outs (partial contact loss) for stronger mismatch.
+            n_dips = max(3, len(freq) // 14)
+            dip_idx = rng.choice(len(freq), size=n_dips, replace=False)
+            dip_factor = rng.uniform(0.18, 0.45, size=n_dips)
+            z_real[dip_idx] *= dip_factor
+            z_imag[dip_idx] *= dip_factor
+
+            # Preserve sign conventions and avoid zeros.
+            z_real = np.sign(z_real_base) * np.maximum(np.abs(z_real), 1e-3)
+            z_imag = np.sign(z_imag_base) * np.maximum(np.abs(z_imag), 1e-3)
+
+            n = len(freq)
+            total_time = 10.0
+            interval = total_time / max(n, 1)
+
+            x_buf, yr_buf, yi_buf = [], [], []
+
+            for i in range(n):
+                if self.stop_requested:
+                    self.log_message("Messy simulated measurement stopped by user.")
+                    break
+
+                x_buf.append(freq[i])
+                yr_buf.append(z_real[i])
+                yi_buf.append(z_imag[i])
+
+                percent = (i + 1) / n * 100.0
+                self.root.after(0, self.load_progress_lbl.config, {"text": f"Loading messy data: {i+1}/{n} points"})
+                self.root.after(0, self.progress_var.set, percent)
+                self.root.after(0, self._safe_set_shared_progress_text, f"{percent:.0f}%")
+                self.root.after(0, self.update_plots_incremental, np.array(x_buf), np.array(yr_buf), np.array(yi_buf))
+
+                time.sleep(interval)
+
+            if len(x_buf) > 0:
+                self.log_message("Messy-data test complete." if not self.stop_requested else "Messy-data test stopped.")
+                try:
+                    current_z_mag = np.sqrt(np.array(yr_buf) ** 2 + np.array(yi_buf) ** 2)
+                    current_freq = np.array(x_buf)
+                    diagnosis_result = self.diagnose_coating(current_z_mag, current_freq)
+                    self.log_message(f"Diagnosis: {diagnosis_result}")
+                    self.report_bode_data_quality(current_freq, current_z_mag)
+                    self.root.after(0, self.show_bode_threshold_indicator, current_freq, current_z_mag)
+                    self.root.after(0, self.show_diagnosis_on_plots, diagnosis_result)
+                except Exception as e:
+                    self.log_message(f"Diagnosis failed: {e}")
+
+            self.root.after(0, self._destroy_shared_progress_ui)
+            self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+            self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+            self.root.after(0, self.load_progress_lbl.config, {"text": "Messy-data test finished" if not self.stop_requested else "Measurement stopped"})
+            if not self.stop_requested:
+                self.root.after(0, self.progress_var.set, 100.0)
+                self.root.after(0, self.set_export_buttons_enabled, True)
+            self.root.after(0, self._safe_set_shared_progress_text, "100%" if not self.stop_requested else "Stopped")
+            self.measurement_in_progress = False
+            self.stop_requested = False
+
+        except Exception as e:
+            self.log_message(f"Error streaming messy test data: {e}")
+            self.root.after(0, self.run_test_btn.config, {"state": "normal"})
+            self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
+            self.root.after(0, self.progress_var.set, 0.0)
+            self.root.after(0, self._safe_set_shared_progress_text, "0%")
+            self.measurement_in_progress = False
+            self.stop_requested = False
 
     def update_plots_incremental(self, freq_subset, z_real_subset, z_imag_subset):
         """Update Nyquist and Bode plots with partial data during streaming."""
@@ -1279,16 +2368,14 @@ class EisAnalysisTool:
             self.log_message(f"Failed to display diagnosis on plots: {e}")
 
     # --- Plot Export Function ---
-    def export_plot(self, plot_type):
-        """Opens a 'Save As' dialog to export Nyquist/Bode plotted data as CSV."""
-
+    def _build_export_dataframe(self, plot_type):
+        """Build export dataframe and metadata for Nyquist/Bode plot."""
         freq = np.asarray(self.latest_plot_data.get('frequency', np.array([])))
         z_real = np.asarray(self.latest_plot_data.get('z_real', np.array([])))
         z_imag = np.asarray(self.latest_plot_data.get('z_imag', np.array([])))
+
         if freq.size == 0 and z_real.size == 0:
-            self.log_message("No plot data available to export.")
-            messagebox.showwarning("No Data", "No plot data available to export.")
-            return
+            return None, None, None
 
         if plot_type == 'nyquist':
             z_imag_neg = -z_imag
@@ -1298,19 +2385,20 @@ class EisAnalysisTool:
             })
             if freq.size == z_real.size:
                 export_df.insert(0, "Frequency (Hz)", freq)
-            default_name = "nyquist_plot.csv"
-            dialog_title = "Export Nyquist CSV As..."
-        elif plot_type == 'bode':
+            return export_df, "nyquist_plot.csv", "Export Nyquist CSV As..."
+
+        if plot_type == 'bode':
             z_mag = np.sqrt(z_real**2 + z_imag**2)
             export_df = pd.DataFrame({
                 "Frequency (Hz)": freq,
                 "|Z| (Ohm)": z_mag,
             })
-            default_name = "bode_plot.csv"
-            dialog_title = "Export Bode CSV As..."
-        else:
-            return
+            return export_df, "bode_plot.csv", "Export Bode CSV As..."
 
+        return None, None, None
+
+    def _save_export_dataframe(self, export_df, default_name, dialog_title):
+        """Prompt for save location and write CSV; returns filepath or None."""
         filetypes = [
             ('CSV File', '*.csv'),
             ('All Files', '*.*')
@@ -1325,14 +2413,109 @@ class EisAnalysisTool:
 
         if not filepath:
             self.log_message("Export cancelled.")
-            return
+            return None
 
         try:
             export_df.to_csv(filepath, index=False)
             self.log_message(f"CSV exported to: {filepath}")
+            return filepath
         except Exception as e:
             self.log_message(f"Error exporting CSV: {e}")
             messagebox.showerror("Export Error", f"Failed to export CSV:\n{e}")
+            return None
+
+    def _open_cloud_target(self, cloud_target):
+        """Open selected cloud provider target for upload."""
+        target = cloud_target.strip().lower()
+
+        if target in ('1', 'onedrive', 'one drive'):
+            onedrive_path = os.environ.get('OneDrive')
+            if onedrive_path and os.path.isdir(onedrive_path):
+                os.startfile(onedrive_path)
+                return "OneDrive"
+            webbrowser.open("https://onedrive.live.com")
+            return "OneDrive"
+
+        if target in ('2', 'google drive', 'gdrive', 'drive'):
+            webbrowser.open("https://drive.google.com/drive/my-drive")
+            return "Google Drive"
+
+        if target in ('3', 'dropbox'):
+            webbrowser.open("https://www.dropbox.com/home")
+            return "Dropbox"
+
+        return None
+
+    def _generate_export_filename(self, base_name):
+        """Generate timestamped filename to avoid collisions for cloud upload flow."""
+        stem, ext = os.path.splitext(base_name)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        return f"{stem}_{timestamp}{ext}"
+
+    def _cloud_export_path_for_choice(self, cloud_choice, default_name):
+        """Resolve automatic save path for cloud upload without a local save dialog."""
+        choice = cloud_choice.strip().lower()
+        filename = self._generate_export_filename(default_name)
+
+        if choice in ('1', 'onedrive', 'one drive'):
+            onedrive_path = os.environ.get('OneDrive')
+            if onedrive_path and os.path.isdir(onedrive_path):
+                return os.path.join(onedrive_path, filename)
+
+        queue_dir = os.path.join(os.path.dirname(__file__), "cloud_upload_queue")
+        os.makedirs(queue_dir, exist_ok=True)
+        return os.path.join(queue_dir, filename)
+
+    def export_plot(self, plot_type):
+        """Opens a 'Save As' dialog to export Nyquist/Bode plotted data as CSV."""
+
+        export_df, default_name, dialog_title = self._build_export_dataframe(plot_type)
+        if export_df is None:
+            self.log_message("No plot data available to export.")
+            messagebox.showwarning("No Data", "No plot data available to export.")
+            return
+
+        self._save_export_dataframe(export_df, default_name, dialog_title)
+
+    def export_plot_to_cloud(self, plot_type):
+        """Export CSV then open selected cloud target for upload."""
+        export_df, default_name, dialog_title = self._build_export_dataframe(plot_type)
+        if export_df is None:
+            self.log_message("No plot data available to export.")
+            messagebox.showwarning("No Data", "No plot data available to export.")
+            return
+
+        prompt = (
+            "Choose cloud destination:\n"
+            "1 = OneDrive\n"
+            "2 = Google Drive\n"
+            "3 = Dropbox"
+        )
+        cloud_choice = simpledialog.askstring("Cloud Save", prompt, parent=self.root)
+        if not cloud_choice:
+            self.log_message("Cloud target selection cancelled.")
+            return
+
+        filepath = self._cloud_export_path_for_choice(cloud_choice, default_name)
+        try:
+            export_df.to_csv(filepath, index=False)
+            self.log_message(f"Cloud upload file prepared: {filepath}")
+        except Exception as e:
+            self.log_message(f"Error preparing cloud upload file: {e}")
+            messagebox.showerror("Cloud Save Error", f"Failed to prepare CSV for upload:\n{e}")
+            return
+
+        cloud_name = self._open_cloud_target(cloud_choice)
+        if cloud_name is None:
+            messagebox.showwarning("Cloud Save", "Unknown cloud option. Use 1, 2, or 3.")
+            self.log_message("Cloud save cancelled: unknown cloud option.")
+            return
+
+        messagebox.showinfo(
+            "Cloud Save",
+            f"CSV saved to:\n{filepath}\n\n{cloud_name} has been opened. Upload this file there.",
+        )
+        self.log_message(f"Cloud export ready: {cloud_name} opened for upload.")
 
 # --- Main execution ---
 if __name__ == "__main__":
