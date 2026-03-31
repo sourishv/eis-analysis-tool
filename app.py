@@ -504,7 +504,7 @@ class EisAnalysisTool:
                 (
                     "USB",
                     dict(
-                        ftdi=False,
+                        ftdi=True,
                         usbcdc=True,
                         winusb=True,
                         bluetooth=False,
@@ -515,7 +515,7 @@ class EisAnalysisTool:
                 (
                     "USB/Bluetooth",
                     dict(
-                        ftdi=False,
+                        ftdi=True,
                         usbcdc=True,
                         winusb=True,
                         bluetooth=True,
