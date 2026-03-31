@@ -149,6 +149,7 @@ class EisAnalysisTool:
         self.shared_progress_frame = None
         self.shared_progress = None
         self.shared_progress_label = None
+        self._measurement_drag_active = False
         self._osk_launch_cmd = self._detect_onscreen_keyboard_command()
         self._last_osk_launch_time = 0.0
 
@@ -733,6 +734,17 @@ class EisAnalysisTool:
             self.eis_canvas.yview_scroll(-1, "units")
         elif event.num == 5:
             self.eis_canvas.yview_scroll(1, "units")
+
+    def _on_measurement_drag_start(self, event):
+        """Start drag-to-scroll gesture for touch displays."""
+        self._measurement_drag_active = True
+        self.eis_canvas.scan_mark(event.x, event.y)
+
+    def _on_measurement_drag(self, event):
+        """Continue drag-to-scroll gesture for touch displays."""
+        if not self._measurement_drag_active:
+            return
+        self.eis_canvas.scan_dragto(event.x, event.y, gain=1)
 
     def _on_measurement_content_configure(self, _event):
         self.eis_canvas.configure(scrollregion=self.eis_canvas.bbox("all"))
