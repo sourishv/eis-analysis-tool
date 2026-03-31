@@ -539,11 +539,17 @@ class EisAnalysisTool:
 
                 self.log_message(f"Discovery ({profile_name}) found {len(discovered)} device(s).")
                 for inst in discovered:
-                    inst_key = id(inst)
+                    inst_key = self._instrument_unique_key(inst)
                     if inst_key in seen_ids:
                         continue
                     seen_ids.add(inst_key)
                     instruments.append(inst)
+
+                # If USB pass already discovered a wired device, skip additional discovery passes.
+                if profile_name == "USB":
+                    usb_candidates = [inst for inst in instruments if not self._is_bluetooth_instrument(inst)]
+                    if usb_candidates:
+                        break
 
             if self.cancel_connect_requested:
                 self.root.after(0, self._finish_connection_cancelled)
@@ -625,6 +631,8 @@ class EisAnalysisTool:
             self.root.after(0, self._set_connected_ui, mode_label)
         except Exception as e:
             self.log_message(f"PalmSens connection failed: {e}")
+            if "FT_DEVICE_NOT_OPENED" in str(e):
+                self.log_message("Hint: FTDI device found but could not be opened. Close other app instances and unload kernel FTDI serial drivers (ftdi_sio/usbserial), then reconnect USB.")
             self.ps_manager = None
             self.ps_instrument = None
             self.connection_mode = None
@@ -647,6 +655,21 @@ class EisAnalysisTool:
         if address:
             return f"name={name}, interface={interface}, addr={address}"
         return f"name={name}, interface={interface}"
+
+    def _instrument_unique_key(self, instrument):
+        """Build a stable identity key so cross-pass discovery does not duplicate the same device."""
+        name = str(getattr(instrument, 'name', 'unknown'))
+        interface = str(getattr(instrument, 'interface', 'unknown'))
+        address = None
+        for attr in ('address', 'mac', 'mac_address', 'identifier', 'id'):
+            try:
+                value = getattr(instrument, attr)
+                if value:
+                    address = str(value)
+                    break
+            except Exception:
+                continue
+        return f"{name}|{interface}|{address or ''}"
 
     def _instrument_matches_mac(self, instrument, target_mac):
         """Best-effort match against known address-like fields and BT name suffixes."""
