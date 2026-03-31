@@ -81,11 +81,16 @@ With the venv active:
 python app.py
 ```
 
-1. The application will launch and auto-connect to the "Mock Device."  
-2. All EIS parameters are pre-filled with test values. Click **"Run EIS Measurement"** to start the simulation.  
-3. The app will switch to the "Output Log" tab and show the process (OCP, scan, diagnosis).  
-4. When complete, the app will switch to the "Bode Plot" tab to display the results.  
-5. You can now switch between the "Nyquist Plot" and "Bode Plot" tabs, hover over data points, and use the CSV export buttons to save plotted data.
+1. Connect the potentiostat to the Raspberry Pi using USB and power it on.
+2. Launch the app and click **"Connect"**.
+3. The app scans PalmSens devices over USB first, then Bluetooth.
+4. If connected, click **"Run Test"** to stream and plot EIS data in real time.
+5. Use the "Nyquist Plot" and "Bode Plot" tabs to inspect data, and export CSV from each plot tab.
+
+Notes:
+
+- If `target_mac` is set in `app.py`, Bluetooth devices prefer that MAC.
+- If the configured MAC is not found and a USB device is present, the app falls back to USB automatically.
 
 ## Troubleshooting
 
@@ -93,6 +98,8 @@ python app.py
   present. Make sure the CSV headers match exactly.
 - No plots / blank: verify the CSV contains numeric data and that the venv is
   active so required packages (pandas, numpy, matplotlib) are available.
+- No device found after USB connect: unplug/replug the potentiostat, then click
+  **"Connect"** again and check the Output Log for discovered devices/interfaces.
 - Activation errors on Windows: when creating/activating `.venv` in PowerShell
   you may need to run:
 

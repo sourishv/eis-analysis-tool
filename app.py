@@ -275,15 +275,15 @@ class EisAnalysisTool:
     # --- Connection Logic (Simulated) ---
 
     def start_connect_thread(self):
-        """Connect to a PalmSens instrument over Bluetooth using PyPalmSens."""
+        """Connect to a PalmSens instrument over USB or Bluetooth using PyPalmSens."""
         self.connect_btn.config(state="disabled")
         self.disconnect_btn.config(state="disabled")
         self.run_test_btn.config(state="disabled")
-        self.status_label.config(text="Status: Connecting (Bluetooth)...", foreground=self.theme["warning"])
+        self.status_label.config(text="Status: Connecting (USB/Bluetooth)...", foreground=self.theme["warning"])
         threading.Thread(target=self.connect_device, daemon=True).start()
 
     def connect_device(self):
-        """Discover and connect to first available Bluetooth PalmSens instrument."""
+        """Discover and connect to an available PalmSens instrument over USB or Bluetooth."""
         if ps is None:
             self.log_message("ERROR: PyPalmSens is not installed. Install with: pip install pypalmsens")
             self.root.after(0, self._set_disconnected_ui)
@@ -299,19 +299,18 @@ class EisAnalysisTool:
             self.ps_manager = None
             self.ps_instrument = None
 
-            # Try fast reconnect by discovery (SDK will pick the device)
-            # if MAC is known, discovery should return it first
-            self.log_message("Scanning for Bluetooth PalmSens instruments...")
+            # Discover on common transports. USB is preferred when physically connected to the Pi.
+            self.log_message("Scanning for PalmSens instruments (USB/Bluetooth)...")
             instruments = ps.discover(
                 ftdi=False,
-                usbcdc=False,
-                winusb=False,
+                usbcdc=True,
+                winusb=True,
                 bluetooth=True,
-                serial=False,
+                serial=True,
                 ignore_errors=True,
             )
             if not instruments:
-                self.log_message("No Bluetooth PalmSens instruments found.")
+                self.log_message("No PalmSens instruments found on USB/Bluetooth.")
                 self.root.after(0, self._set_disconnected_ui)
                 return
 
@@ -319,7 +318,8 @@ class EisAnalysisTool:
             for idx, inst in enumerate(instruments, start=1):
                 self.log_message(f"  {idx}. {self._describe_instrument(inst)}")
 
-            # Fixed MAC targeting (hard-coded in __init__)
+            # Fixed MAC targeting for Bluetooth instruments.
+            # USB devices usually do not expose MAC-style identifiers.
             selected = None
             if self.target_mac:
                 for inst in instruments:
@@ -327,12 +327,21 @@ class EisAnalysisTool:
                         selected = inst
                         break
                 if selected is None:
-                    self.log_message(f"Configured MAC {self.target_mac} not found in discovered devices.")
-                    self.root.after(0, self._set_disconnected_ui)
-                    return
-                self.log_message(f"Using configured MAC match: {self._describe_instrument(selected)}")
+                    usb_candidates = [inst for inst in instruments if not self._is_bluetooth_instrument(inst)]
+                    if usb_candidates:
+                        selected = usb_candidates[0]
+                        self.log_message(
+                            f"Configured MAC {self.target_mac} not found; falling back to USB device: {self._describe_instrument(selected)}"
+                        )
+                    else:
+                        self.log_message(f"Configured MAC {self.target_mac} not found in discovered Bluetooth devices.")
+                        self.root.after(0, self._set_disconnected_ui)
+                        return
+                else:
+                    self.log_message(f"Using configured MAC match: {self._describe_instrument(selected)}")
             else:
-                selected = instruments[0]
+                usb_candidates = [inst for inst in instruments if not self._is_bluetooth_instrument(inst)]
+                selected = usb_candidates[0] if usb_candidates else instruments[0]
 
             self.ps_instrument = selected
 
@@ -417,6 +426,11 @@ class EisAnalysisTool:
             except Exception:
                 continue
         return False
+
+    def _is_bluetooth_instrument(self, instrument):
+        """Return True when instrument interface metadata indicates Bluetooth transport."""
+        interface = getattr(instrument, 'interface', '')
+        return 'bluetooth' in str(interface).lower()
 
     def disconnect_device(self):
         """Disconnect active PalmSens instrument."""
