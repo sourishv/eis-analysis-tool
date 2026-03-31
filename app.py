@@ -173,8 +173,11 @@ class EisAnalysisTool:
         self.eis_canvas_window = self.eis_canvas.create_window((0, 0), window=self.eis_scroll_content, anchor="nw")
         self.eis_scroll_content.bind("<Configure>", self._on_measurement_content_configure)
         self.eis_canvas.bind("<Configure>", self._on_measurement_canvas_configure)
+        self._bind_scroll_events(self.eis_frame)
         self._bind_scroll_events(self.eis_canvas)
         self._bind_scroll_events(self.eis_scroll_content)
+        self.eis_canvas.bind("<ButtonPress-1>", self._on_measurement_drag_start, add="+")
+        self.eis_canvas.bind("<B1-Motion>", self._on_measurement_drag, add="+")
         self.eis_scroll_content.bind("<ButtonPress-1>", self._on_measurement_drag_start, add="+")
         self.eis_scroll_content.bind("<B1-Motion>", self._on_measurement_drag, add="+")
 
@@ -258,6 +261,7 @@ class EisAnalysisTool:
 
         self.load_progress_lbl = ttk.Label(load_frame, text="No test running", style="Muted.Card.TLabel")
         self.load_progress_lbl.pack(anchor="w", pady=(8, 0))
+        self._bind_drag_scroll_to_descendants(self.eis_scroll_content)
         # --- END OF CHANGES TO TAB 1 ---
 
         # --- Tab 2: Nyquist Plot ---
@@ -494,16 +498,52 @@ class EisAnalysisTool:
             self.ps_manager = None
             self.ps_instrument = None
 
-            # Discover on common transports. USB is preferred when physically connected to the Pi.
-            self.log_message("Scanning for PalmSens instruments (USB/Bluetooth)...")
-            instruments = ps.discover(
-                ftdi=False,
-                usbcdc=True,
-                winusb=True,
-                bluetooth=True,
-                serial=True,
-                ignore_errors=True,
-            )
+            # Discover in two passes: USB-first, then USB+Bluetooth fallback.
+            self.log_message("Scanning for PalmSens instruments (USB first)...")
+            discovery_profiles = [
+                (
+                    "USB",
+                    dict(
+                        ftdi=True,
+                        usbcdc=True,
+                        winusb=True,
+                        bluetooth=False,
+                        serial=True,
+                        ignore_errors=True,
+                    ),
+                ),
+                (
+                    "USB/Bluetooth",
+                    dict(
+                        ftdi=True,
+                        usbcdc=True,
+                        winusb=True,
+                        bluetooth=True,
+                        serial=True,
+                        ignore_errors=True,
+                    ),
+                ),
+            ]
+
+            instruments = []
+            seen_ids = set()
+            for profile_name, profile_args in discovery_profiles:
+                if self.cancel_connect_requested:
+                    self.root.after(0, self._finish_connection_cancelled)
+                    return
+                try:
+                    discovered = ps.discover(**profile_args)
+                except Exception as discover_error:
+                    self.log_message(f"Discovery ({profile_name}) failed: {discover_error}")
+                    continue
+
+                self.log_message(f"Discovery ({profile_name}) found {len(discovered)} device(s).")
+                for inst in discovered:
+                    inst_key = id(inst)
+                    if inst_key in seen_ids:
+                        continue
+                    seen_ids.add(inst_key)
+                    instruments.append(inst)
 
             if self.cancel_connect_requested:
                 self.root.after(0, self._finish_connection_cancelled)
@@ -511,6 +551,7 @@ class EisAnalysisTool:
 
             if not instruments:
                 self.log_message("No PalmSens instruments found on USB/Bluetooth.")
+                self.log_message("Check cable/power and verify the Pi can see USB serial devices (e.g., /dev/ttyACM* or /dev/ttyUSB*).")
                 self.root.after(0, self._set_disconnected_ui)
                 return
 
@@ -713,6 +754,14 @@ class EisAnalysisTool:
     def _bind_scroll_events(self, widget):
         widget.bind("<Enter>", self._on_measurement_enter_scrollable, add="+")
         widget.bind("<Leave>", self._on_measurement_leave_scrollable, add="+")
+
+    def _bind_drag_scroll_to_descendants(self, parent_widget):
+        """Enable drag-to-scroll from anywhere in the measurement setup content."""
+        for child in parent_widget.winfo_children():
+            child.bind("<ButtonPress-1>", self._on_measurement_drag_start, add="+")
+            child.bind("<B1-Motion>", self._on_measurement_drag, add="+")
+            if child.winfo_children():
+                self._bind_drag_scroll_to_descendants(child)
 
     def _on_measurement_enter_scrollable(self, _event):
         self.root.bind_all("<MouseWheel>", self._on_measurement_mousewheel, add="+")
