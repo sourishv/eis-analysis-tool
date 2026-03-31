@@ -5,6 +5,8 @@ import time
 import os
 import re
 import webbrowser
+import shutil
+import subprocess
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
@@ -115,7 +117,7 @@ class EisAnalysisTool:
             text="Status: Disconnected", 
             style="Status.TLabel"
         )
-        self.status_label.grid(row=0, column=5, sticky="e", padx=(10, 2))
+        self.status_label.grid(row=1, column=0, columnspan=6, sticky="w", padx=(2, 2), pady=(8, 0))
         
         self.notebook = ttk.Notebook(main_frame)
         self.notebook.pack(fill="both", expand=True)
@@ -147,14 +149,37 @@ class EisAnalysisTool:
         self.shared_progress_frame = None
         self.shared_progress = None
         self.shared_progress_label = None
+        self._osk_launch_cmd = self._detect_onscreen_keyboard_command()
+        self._last_osk_launch_time = 0.0
 
         # --- Tab 1: Load Measurement ---
         self.eis_frame = ttk.Frame(self.notebook, style="Card.TFrame")
         self.notebook.add(self.eis_frame, text='Measurement Setup') # <-- Renamed Tab
 
+        # Scrollable measurement setup for smaller touch displays.
+        self.eis_canvas = tk.Canvas(
+            self.eis_frame,
+            bg=self.theme["panel"],
+            highlightthickness=0,
+            borderwidth=0,
+        )
+        self.eis_canvas.pack(side="left", fill="both", expand=True)
+        self.eis_scrollbar = ttk.Scrollbar(self.eis_frame, orient="vertical", command=self.eis_canvas.yview)
+        self.eis_scrollbar.pack(side="right", fill="y")
+        self.eis_canvas.configure(yscrollcommand=self.eis_scrollbar.set)
+
+        self.eis_scroll_content = ttk.Frame(self.eis_canvas, style="Card.TFrame")
+        self.eis_canvas_window = self.eis_canvas.create_window((0, 0), window=self.eis_scroll_content, anchor="nw")
+        self.eis_scroll_content.bind("<Configure>", self._on_measurement_content_configure)
+        self.eis_canvas.bind("<Configure>", self._on_measurement_canvas_configure)
+        self._bind_scroll_events(self.eis_canvas)
+        self._bind_scroll_events(self.eis_scroll_content)
+        self.eis_scroll_content.bind("<ButtonPress-1>", self._on_measurement_drag_start, add="+")
+        self.eis_scroll_content.bind("<B1-Motion>", self._on_measurement_drag, add="+")
+
         # --- NEW: Load Data Button ---
         # The parameter fields have been removed.
-        load_frame = ttk.Frame(self.eis_frame, style="Card.TFrame", padding=(18, 16))
+        load_frame = ttk.Frame(self.eis_scroll_content, style="Card.TFrame", padding=(18, 16))
         load_frame.pack(fill="both", expand=True)
 
         ttk.Label(load_frame, text="Measurement Configuration", style="SectionTitle.TLabel").pack(anchor="w")
@@ -180,9 +205,25 @@ class EisAnalysisTool:
             var = tk.StringVar(value=default)
             ent = ttk.Entry(params_frame, textvariable=var, width=24)
             ent.grid(row=i * 2, column=1, sticky="ew", pady=(4, 0))
+            self._bind_entry_touch_focus(ent)
             hint = ttk.Label(params_frame, text=helper_text, style="Hint.Card.TLabel")
             hint.grid(row=i * 2 + 1, column=1, sticky="w", pady=(1, 8))
             self.param_vars[label_text] = var
+
+        if self._osk_launch_cmd:
+            ttk.Label(
+                load_frame,
+                text=f"On-screen keyboard available via: {self._osk_launch_cmd}",
+                style="Hint.Card.TLabel",
+            ).pack(anchor="w", pady=(0, 6))
+
+            self.keyboard_btn = ttk.Button(
+                load_frame,
+                text="Open Keyboard",
+                command=self.open_onscreen_keyboard,
+                style="Secondary.TButton",
+            )
+            self.keyboard_btn.pack(anchor="w", pady=(0, 10))
 
         controls_frame = ttk.Frame(load_frame, style="Card.TFrame")
         controls_frame.pack(fill="x", pady=(2, 8))
@@ -358,7 +399,7 @@ class EisAnalysisTool:
             self.connect_btn.config(state="disabled")
         self.disconnect_btn.config(state="disabled")
         self.run_test_btn.config(state="disabled")
-        self.status_label.config(text="Status: Connecting (Bluetooth)...", foreground=self.theme["warning"])
+        self.status_label.config(text="Status: Connecting (USB/Bluetooth)...", foreground=self.theme["warning"])
         threading.Thread(target=self.connect_device, daemon=True).start()
 
     def request_cancel_connect(self):
@@ -368,7 +409,7 @@ class EisAnalysisTool:
         self.cancel_connect_requested = True
         self.connect_btn.config(state="disabled")
         self.status_label.config(text="Status: Cancelling connection...", foreground=self.theme["warning"])
-        self.log_message("Cancel requested: Bluetooth connection attempt will stop as soon as possible.")
+        self.log_message("Cancel requested: connection attempt will stop as soon as possible.")
 
     def _finish_connection_cancelled(self):
         """Finalize UI state after a cancelled connection attempt."""
@@ -435,7 +476,7 @@ class EisAnalysisTool:
             self.root.after(0, self._set_disconnected_ui)
 
     def connect_device(self):
-        """Discover and connect to first available Bluetooth PalmSens instrument."""
+        """Discover and connect to a PalmSens instrument over USB or Bluetooth."""
         if ps is None:
             self.log_message("ERROR: PyPalmSens is not installed. Install with: pip install pypalmsens")
             self.connection_mode = None
@@ -468,7 +509,7 @@ class EisAnalysisTool:
                 return
 
             if not instruments:
-                self.log_message("No Bluetooth PalmSens instruments found.")
+                self.log_message("No PalmSens instruments found on USB/Bluetooth.")
                 self.root.after(0, self._set_disconnected_ui)
                 return
 
@@ -485,10 +526,18 @@ class EisAnalysisTool:
                         selected = inst
                         break
                 if selected is None:
-                    self.log_message(f"Configured MAC {self.target_mac} not found in discovered devices.")
-                    self.root.after(0, self._set_disconnected_ui)
-                    return
-                self.log_message(f"Using configured MAC match: {self._describe_instrument(selected)}")
+                    usb_candidates = [inst for inst in instruments if not self._is_bluetooth_instrument(inst)]
+                    if usb_candidates:
+                        selected = usb_candidates[0]
+                        self.log_message(
+                            f"Configured MAC {self.target_mac} not found; falling back to USB device: {self._describe_instrument(selected)}"
+                        )
+                    else:
+                        self.log_message(f"Configured MAC {self.target_mac} not found in discovered Bluetooth devices.")
+                        self.root.after(0, self._set_disconnected_ui)
+                        return
+                else:
+                    self.log_message(f"Using configured MAC match: {self._describe_instrument(selected)}")
             else:
                 usb_candidates = [inst for inst in instruments if not self._is_bluetooth_instrument(inst)]
                 selected = usb_candidates[0] if usb_candidates else instruments[0]
@@ -524,11 +573,16 @@ class EisAnalysisTool:
                 raise last_err if last_err is not None else RuntimeError("Unknown connection error")
 
             serial = self.ps_manager.get_instrument_serial()
-            self.connection_mode = "sensit_bt"
+            if self._is_bluetooth_instrument(selected):
+                self.connection_mode = "sensit_bt"
+                mode_label = "Sensit BT"
+            else:
+                self.connection_mode = "sensit_usb"
+                mode_label = "Sensit USB"
             self.log_message(f"Connected to {self.ps_instrument.name} (Serial: {serial})")
-            self.root.after(0, self._set_connected_ui, "Sensit BT")
+            self.root.after(0, self._set_connected_ui, mode_label)
         except Exception as e:
-            self.log_message(f"Bluetooth connection failed: {e}")
+            self.log_message(f"PalmSens connection failed: {e}")
             self.ps_manager = None
             self.ps_instrument = None
             self.connection_mode = None
@@ -612,10 +666,79 @@ class EisAnalysisTool:
         self.connect_btn.config(text="Connect", command=self.start_connect_thread, state="disabled")
         self.disconnect_btn.config(state="normal")
         self.run_test_btn.config(state="normal")
-        if self.connection_mode == "sensit_bt":
+        if self.connection_mode in ("sensit_bt", "sensit_usb"):
             self.calibrate_btn.config(state="normal")
         else:
             self.calibrate_btn.config(state="disabled")
+
+    def _bind_entry_touch_focus(self, entry_widget):
+        """Improve touch input by forcing focus and opening OSK when available."""
+        entry_widget.bind("<ButtonRelease-1>", self._on_entry_touched, add="+")
+        entry_widget.bind("<FocusIn>", self._on_entry_focused, add="+")
+
+    def _on_entry_touched(self, event):
+        try:
+            event.widget.focus_set()
+            event.widget.icursor(tk.END)
+        except Exception:
+            pass
+
+    def _on_entry_focused(self, _event):
+        self.open_onscreen_keyboard()
+
+    def _detect_onscreen_keyboard_command(self):
+        """Return the first available on-screen keyboard launcher command."""
+        candidates = ["wvkbd-mobintl", "matchbox-keyboard", "onboard", "florence"]
+        for cmd in candidates:
+            if shutil.which(cmd):
+                return cmd
+        return None
+
+    def open_onscreen_keyboard(self):
+        """Launch an available on-screen keyboard without blocking the UI."""
+        if not self._osk_launch_cmd:
+            return
+
+        now = time.time()
+        if now - self._last_osk_launch_time < 1.5:
+            return
+
+        self._last_osk_launch_time = now
+        try:
+            subprocess.Popen([self._osk_launch_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            self.log_message(f"Unable to launch on-screen keyboard: {e}")
+
+    def _bind_scroll_events(self, widget):
+        widget.bind("<Enter>", self._on_measurement_enter_scrollable, add="+")
+        widget.bind("<Leave>", self._on_measurement_leave_scrollable, add="+")
+
+    def _on_measurement_enter_scrollable(self, _event):
+        self.root.bind_all("<MouseWheel>", self._on_measurement_mousewheel, add="+")
+        self.root.bind_all("<Button-4>", self._on_measurement_mousewheel_linux, add="+")
+        self.root.bind_all("<Button-5>", self._on_measurement_mousewheel_linux, add="+")
+
+    def _on_measurement_leave_scrollable(self, _event):
+        self.root.unbind_all("<MouseWheel>")
+        self.root.unbind_all("<Button-4>")
+        self.root.unbind_all("<Button-5>")
+
+    def _on_measurement_mousewheel(self, event):
+        if event.delta == 0:
+            return
+        self.eis_canvas.yview_scroll(-1 * int(event.delta / 120), "units")
+
+    def _on_measurement_mousewheel_linux(self, event):
+        if event.num == 4:
+            self.eis_canvas.yview_scroll(-1, "units")
+        elif event.num == 5:
+            self.eis_canvas.yview_scroll(1, "units")
+
+    def _on_measurement_content_configure(self, _event):
+        self.eis_canvas.configure(scrollregion=self.eis_canvas.bbox("all"))
+
+    def _on_measurement_canvas_configure(self, event):
+        self.eis_canvas.itemconfigure(self.eis_canvas_window, width=event.width)
 
     def _set_disconnected_ui(self):
         self.connection_in_progress = False
@@ -1282,6 +1405,7 @@ class EisAnalysisTool:
         self.test_run_counter += 1
         mode_label = {
             "sensit_bt": "Sensit BT",
+            "sensit_usb": "Sensit USB",
             "simulated": "Simulated Mode",
             "messy": "Messy Data",
             "calibration": "Calibration",
@@ -1346,8 +1470,8 @@ class EisAnalysisTool:
         if self.connection_mode is None:
             self.log_message("ERROR: No device connected. Click Connect first.")
             return
-        if self.connection_mode == "sensit_bt" and self.ps_manager is None:
-            self.log_message("ERROR: No Sensit BT instrument connected. Click Connect first.")
+        if self.connection_mode in ("sensit_bt", "sensit_usb") and self.ps_manager is None:
+            self.log_message("ERROR: No PalmSens instrument connected. Click Connect first.")
             return
         if self.measurement_in_progress:
             self.log_message("Measurement already in progress.")
@@ -1439,8 +1563,8 @@ class EisAnalysisTool:
 
     def start_calibration_thread(self):
         """Run 3 real calibration tests on connected Sensit BT instrument."""
-        if self.connection_mode != "sensit_bt" or self.ps_manager is None:
-            self.log_message("ERROR: Calibration requires an active Sensit BT connection.")
+        if self.connection_mode not in ("sensit_bt", "sensit_usb") or self.ps_manager is None:
+            self.log_message("ERROR: Calibration requires an active PalmSens connection.")
             return
         if self.measurement_in_progress:
             self.log_message("Measurement already in progress.")
@@ -1530,7 +1654,7 @@ class EisAnalysisTool:
 
             self.root.after(0, self.show_calibration_status_on_plots, None)
             self.root.after(0, self.run_test_btn.config, {"state": "normal"})
-            if self.connection_mode == "sensit_bt" and self.ps_manager is not None:
+            if self.connection_mode in ("sensit_bt", "sensit_usb") and self.ps_manager is not None:
                 self.root.after(0, self.calibrate_btn.config, {"state": "normal"})
             else:
                 self.root.after(0, self.calibrate_btn.config, {"state": "disabled"})
@@ -1553,7 +1677,7 @@ class EisAnalysisTool:
             self.log_message(f"Real calibration sequence failed: {e}")
             self.root.after(0, self.show_calibration_status_on_plots, None)
             self.root.after(0, self.run_test_btn.config, {"state": "normal"})
-            if self.connection_mode == "sensit_bt" and self.ps_manager is not None:
+            if self.connection_mode in ("sensit_bt", "sensit_usb") and self.ps_manager is not None:
                 self.root.after(0, self.calibrate_btn.config, {"state": "normal"})
             else:
                 self.root.after(0, self.calibrate_btn.config, {"state": "disabled"})
@@ -2015,7 +2139,7 @@ class EisAnalysisTool:
                 self.measurement_in_progress = False
                 self.stop_requested = False
                 self.root.after(0, self.run_test_btn.config, {"state": "normal"})
-                if self.connection_mode == "sensit_bt" and self.ps_manager is not None:
+                if self.connection_mode in ("sensit_bt", "sensit_usb") and self.ps_manager is not None:
                     self.root.after(0, self.calibrate_btn.config, {"state": "normal"})
                 else:
                     self.root.after(0, self.calibrate_btn.config, {"state": "disabled"})
