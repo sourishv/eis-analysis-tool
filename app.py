@@ -90,11 +90,11 @@ class EisAnalysisTool:
         self.top_region.pack_propagate(False)
 
         header_frame = ttk.Frame(self.top_region, style="App.TFrame")
-        header_frame.pack(fill="x", pady=(0, 4))
+        header_frame.pack(fill="x", pady=(0, 2))
         ttk.Label(header_frame, text="EIS Analysis Tool", style="Header.TLabel").pack(anchor="w")
 
-        connect_frame = ttk.Frame(self.top_region, style="Card.TFrame", padding=(8, 5))
-        connect_frame.pack(fill="x", pady=(0, 6))
+        connect_frame = ttk.Frame(self.top_region, style="Card.TFrame", padding=(8, 4))
+        connect_frame.pack(fill="x", pady=(0, 4))
         connect_frame.columnconfigure(6, weight=1)
 
         ttk.Label(connect_frame, text="Connection", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", padx=(2, 10))
@@ -130,14 +130,14 @@ class EisAnalysisTool:
             text="Status: Disconnected", 
             style="Status.TLabel"
         )
-        self.status_label.grid(row=1, column=0, columnspan=3, sticky="w", padx=(2, 8), pady=(4, 0))
+        self.status_label.grid(row=1, column=0, columnspan=3, sticky="w", padx=(2, 8), pady=(2, 0))
 
         self.top_measurement_label = ttk.Label(
             connect_frame,
             text="Ready",
-            style="Muted.Card.TLabel",
+            style="Card.TLabel",
         )
-        self.top_measurement_label.grid(row=1, column=3, columnspan=4, sticky="w", padx=(4, 2), pady=(4, 0))
+        self.top_measurement_label.grid(row=1, column=3, columnspan=4, sticky="w", padx=(4, 2), pady=(2, 0))
         
         self.notebook = ttk.Notebook(main_frame)
         self.notebook.pack(fill="both", expand=True, pady=(4, 0))
@@ -215,27 +215,25 @@ class EisAnalysisTool:
 
         # --- Editable EIS parameter fields ---
         params = [
-            ("Start Frequency (Hz)", "1e5", "Highest scan frequency (example: 100000)"),
-            ("End Frequency (Hz)", "1e-1", "Lowest scan frequency (example: 0.1)"),
-            ("Voltage Amplitude (mV)", "50", "AC excitation amplitude in millivolts"),
-            ("Points per Decade", "5", "Resolution of the sweep (higher = denser scan)"),
+            ("Start Frequency (Hz)", "1e5"),
+            ("End Frequency (Hz)", "1e-1"),
+            ("Voltage Amplitude (mV)", "50"),
+            ("Points per Decade", "5"),
         ]
 
         self.param_vars = {}
-        params_frame = ttk.Frame(load_frame, style="InnerCard.TFrame", padding=(16, 14))
-        params_frame.pack(fill="x", pady=(0, 18))
+        params_frame = ttk.Frame(load_frame, style="InnerCard.TFrame", padding=(12, 10))
+        params_frame.pack(fill="x", pady=(0, 10))
         params_frame.columnconfigure(0, weight=0)
         params_frame.columnconfigure(1, weight=1)
 
-        for i, (label_text, default, helper_text) in enumerate(params):
+        for i, (label_text, default) in enumerate(params):
             lbl = ttk.Label(params_frame, text=label_text, style="Inner.Card.TLabel")
-            lbl.grid(row=i * 2, column=0, sticky="w", padx=(0, 12), pady=(4, 0))
+            lbl.grid(row=i, column=0, sticky="w", padx=(0, 12), pady=(2, 2))
             var = tk.StringVar(value=default)
             ent = ttk.Entry(params_frame, textvariable=var, width=24)
-            ent.grid(row=i * 2, column=1, sticky="ew", pady=(4, 0))
+            ent.grid(row=i, column=1, sticky="ew", pady=(2, 2))
             self._bind_entry_touch_focus(ent)
-            hint = ttk.Label(params_frame, text=helper_text, style="Hint.Card.TLabel")
-            hint.grid(row=i * 2 + 1, column=1, sticky="w", pady=(1, 8))
             self.param_vars[label_text] = var
 
         if self._osk_launch_cmd:
@@ -254,7 +252,7 @@ class EisAnalysisTool:
             self.keyboard_btn.pack(anchor="w", pady=(0, 10))
 
         controls_frame = ttk.Frame(load_frame, style="Card.TFrame")
-        controls_frame.pack(fill="x", pady=(2, 8))
+        controls_frame.pack(fill="x", pady=(2, 4))
 
         self.run_test_btn = ttk.Button(
             controls_frame,
@@ -330,8 +328,8 @@ class EisAnalysisTool:
         
         self.bode_fig = Figure(figsize=(6, 4), dpi=100, facecolor=self.theme["panel"])
         
-        self.bode_ax_mag = self.bode_fig.add_axes([0.18, 0.22, 0.76, 0.68], zorder=1)
-        self.bode_cbar_ax = self.bode_fig.add_axes([0.10, 0.22, 0.04, 0.68], zorder=2)
+        self.bode_ax_mag = self.bode_fig.add_axes([0.15, 0.20, 0.70, 0.70], zorder=1)
+        self.bode_cbar_ax = self.bode_fig.add_axes([0.88, 0.20, 0.03, 0.70], zorder=2)
         
         self.bode_ax_mag.patch.set_alpha(0) 
         self.bode_ax_mag.plot_data = ([], []) 
@@ -419,7 +417,7 @@ class EisAnalysisTool:
         self.nyquist_canvas.mpl_connect("motion_notify_event", self.on_plot_hover)
         self.bode_canvas.mpl_connect("motion_notify_event", self.on_plot_hover)
         try:
-            self.notebook.select(self.bode_tab)
+            self.notebook.select(self.eis_frame)
         except Exception:
             pass
         self.root.after(0, self._apply_top_bottom_split)
@@ -1190,6 +1188,15 @@ class EisAnalysisTool:
         except Exception:
             pass
         self._refresh_top_action_buttons()
+
+    def _clear_measurement_state(self):
+        """Reset measurement flags and refresh action buttons."""
+        self.measurement_in_progress = False
+        self.stop_requested = False
+        try:
+            self.root.after(0, self._refresh_top_action_buttons)
+        except Exception:
+            self._refresh_top_action_buttons()
 
     def _clear_plots_for_new_run(self):
         """Clear previous plot traces immediately when starting a new run."""
