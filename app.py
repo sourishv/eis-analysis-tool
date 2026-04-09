@@ -59,12 +59,12 @@ class EisAnalysisTool:
         style.configure("App.TFrame", background=self.theme["bg"])
         style.configure("Card.TFrame", background=self.theme["panel"], relief="solid", borderwidth=1, bordercolor=self.theme["line_soft"])
         style.configure("InnerCard.TFrame", background=self.theme["panel_alt"], relief="solid", borderwidth=1, bordercolor=self.theme["line"])
-        style.configure("TLabel", background=self.theme["bg"], foreground=self.theme["text"], font=("Segoe UI", 11))
-        style.configure("Card.TLabel", background=self.theme["panel"], foreground=self.theme["text"], font=("Segoe UI", 11))
-        style.configure("Inner.Card.TLabel", background=self.theme["panel_alt"], foreground=self.theme["text"], font=("Segoe UI", 11))
+        style.configure("TLabel", background=self.theme["bg"], foreground=self.theme["text"], font=("Segoe UI", 10))
+        style.configure("Card.TLabel", background=self.theme["panel"], foreground=self.theme["text"], font=("Segoe UI", 10))
+        style.configure("Inner.Card.TLabel", background=self.theme["panel_alt"], foreground=self.theme["text"], font=("Segoe UI", 10))
         style.configure("Muted.Card.TLabel", background=self.theme["panel"], foreground=self.theme["muted"], font=("Segoe UI", 10))
-        style.configure("Header.TLabel", background=self.theme["bg"], foreground=self.theme["text"], font=("Segoe UI Semibold", 16))
-        style.configure("SectionTitle.TLabel", background=self.theme["panel"], foreground=self.theme["text"], font=("Segoe UI Semibold", 12))
+        style.configure("Header.TLabel", background=self.theme["bg"], foreground=self.theme["text"], font=("Segoe UI Semibold", 13))
+        style.configure("SectionTitle.TLabel", background=self.theme["panel"], foreground=self.theme["text"], font=("Segoe UI Semibold", 11))
         style.configure("TEntry", fieldbackground=self.theme["entry_bg"], foreground=self.theme["text"], insertcolor=self.theme["text"], bordercolor=self.theme["line"], lightcolor=self.theme["line"], darkcolor=self.theme["line"], padding=(8, 6), font=("Segoe UI", 11))
         style.configure("Primary.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["accent"], foreground=self.theme["bg"], bordercolor=self.theme["accent"])
         style.map("Primary.TButton", background=[("active", self.theme["accent_active"]), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
@@ -74,7 +74,7 @@ class EisAnalysisTool:
         style.map("Run.TButton", background=[("active", "#43ba62"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("Stop.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["danger"], foreground="white", bordercolor=self.theme["danger"])
         style.map("Stop.TButton", background=[("active", "#f06b78"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
-        style.configure("Status.TLabel", background=self.theme["panel"], foreground=self.theme["danger"], font=("Segoe UI", 11, "bold"))
+        style.configure("Status.TLabel", background=self.theme["panel"], foreground=self.theme["danger"], font=("Segoe UI", 10, "bold"))
         style.configure("TNotebook", background=self.theme["bg"], borderwidth=0, tabmargins=(2, 2, 2, 0))
         style.configure("TNotebook.Tab", font=("Segoe UI Semibold", 10), background=self.theme["tab_bg"], foreground=self.theme["tab_text"], padding=(16, 8))
         style.map("TNotebook.Tab", background=[("selected", self.theme["panel"]), ("active", self.theme["tab_hover"])], foreground=[("selected", self.theme["text"]), ("active", self.theme["text"])])
@@ -207,11 +207,10 @@ class EisAnalysisTool:
 
         # --- NEW: Load Data Button ---
         # The parameter fields have been removed.
-        load_frame = ttk.Frame(self.eis_scroll_content, style="Card.TFrame", padding=(14, 12))
+        load_frame = ttk.Frame(self.eis_scroll_content, style="Card.TFrame", padding=(10, 8))
         load_frame.pack(fill="x", expand=False)
 
         ttk.Label(load_frame, text="Measurement Configuration", style="SectionTitle.TLabel").pack(anchor="w")
-        ttk.Label(load_frame, text="Tune scan parameters and run the real-time EIS test.", style="Muted.Card.TLabel").pack(anchor="w", pady=(2, 14))
 
         # --- Editable EIS parameter fields ---
         params = [
@@ -222,37 +221,22 @@ class EisAnalysisTool:
         ]
 
         self.param_vars = {}
-        params_frame = ttk.Frame(load_frame, style="InnerCard.TFrame", padding=(12, 10))
-        params_frame.pack(fill="x", pady=(0, 10))
+        params_frame = ttk.Frame(load_frame, style="InnerCard.TFrame", padding=(10, 8))
+        params_frame.pack(fill="x", pady=(0, 6))
         params_frame.columnconfigure(0, weight=0)
         params_frame.columnconfigure(1, weight=1)
 
         for i, (label_text, default) in enumerate(params):
             lbl = ttk.Label(params_frame, text=label_text, style="Inner.Card.TLabel")
-            lbl.grid(row=i, column=0, sticky="w", padx=(0, 12), pady=(2, 2))
+            lbl.grid(row=i, column=0, sticky="w", padx=(0, 10), pady=(1, 1))
             var = tk.StringVar(value=default)
-            ent = ttk.Entry(params_frame, textvariable=var, width=24)
-            ent.grid(row=i, column=1, sticky="ew", pady=(2, 2))
+            ent = ttk.Entry(params_frame, textvariable=var, width=20)
+            ent.grid(row=i, column=1, sticky="ew", pady=(1, 1))
             self._bind_entry_touch_focus(ent)
             self.param_vars[label_text] = var
 
-        if self._osk_launch_cmd:
-            ttk.Label(
-                load_frame,
-                text=f"On-screen keyboard available via: {self._osk_launch_cmd}",
-                style="Hint.Card.TLabel",
-            ).pack(anchor="w", pady=(0, 6))
-
-            self.keyboard_btn = ttk.Button(
-                load_frame,
-                text="Open Keyboard",
-                command=self.open_onscreen_keyboard,
-                style="Secondary.TButton",
-            )
-            self.keyboard_btn.pack(anchor="w", pady=(0, 10))
-
         controls_frame = ttk.Frame(load_frame, style="Card.TFrame")
-        controls_frame.pack(fill="x", pady=(2, 4))
+        controls_frame.pack(fill="x", pady=(2, 2))
 
         self.run_test_btn = ttk.Button(
             controls_frame,
@@ -284,7 +268,7 @@ class EisAnalysisTool:
         self.stop_test_btn.pack_forget()
 
         self.load_progress_lbl = ttk.Label(load_frame, text="No test running", style="Muted.Card.TLabel")
-        self.load_progress_lbl.pack(anchor="w", pady=(8, 0))
+        self.load_progress_lbl.pack(anchor="w", pady=(4, 0))
         self._bind_drag_scroll_to_descendants(self.eis_scroll_content)
         # --- END OF CHANGES TO TAB 1 ---
 
@@ -328,8 +312,8 @@ class EisAnalysisTool:
         
         self.bode_fig = Figure(figsize=(6, 4), dpi=100, facecolor=self.theme["panel"])
         
-        self.bode_ax_mag = self.bode_fig.add_axes([0.15, 0.20, 0.70, 0.70], zorder=1)
-        self.bode_cbar_ax = self.bode_fig.add_axes([0.88, 0.20, 0.03, 0.70], zorder=2)
+        self.bode_ax_mag = self.bode_fig.add_axes([0.24, 0.20, 0.70, 0.70], zorder=1)
+        self.bode_cbar_ax = self.bode_fig.add_axes([0.12, 0.20, 0.03, 0.70], zorder=2)
         
         self.bode_ax_mag.patch.set_alpha(0) 
         self.bode_ax_mag.plot_data = ([], []) 
