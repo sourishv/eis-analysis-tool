@@ -63,7 +63,7 @@ class EisAnalysisTool:
         style.configure("Card.TLabel", background=self.theme["panel"], foreground=self.theme["text"], font=("Segoe UI", 11))
         style.configure("Inner.Card.TLabel", background=self.theme["panel_alt"], foreground=self.theme["text"], font=("Segoe UI", 11))
         style.configure("Muted.Card.TLabel", background=self.theme["panel"], foreground=self.theme["muted"], font=("Segoe UI", 10))
-        style.configure("Header.TLabel", background=self.theme["bg"], foreground=self.theme["text"], font=("Segoe UI Semibold", 20))
+        style.configure("Header.TLabel", background=self.theme["bg"], foreground=self.theme["text"], font=("Segoe UI Semibold", 16))
         style.configure("SectionTitle.TLabel", background=self.theme["panel"], foreground=self.theme["text"], font=("Segoe UI Semibold", 12))
         style.configure("TEntry", fieldbackground=self.theme["entry_bg"], foreground=self.theme["text"], insertcolor=self.theme["text"], bordercolor=self.theme["line"], lightcolor=self.theme["line"], darkcolor=self.theme["line"], padding=(8, 6), font=("Segoe UI", 11))
         style.configure("Primary.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["accent"], foreground=self.theme["bg"], bordercolor=self.theme["accent"])
@@ -82,7 +82,7 @@ class EisAnalysisTool:
         style.configure("Green.Horizontal.TProgressbar", troughcolor=self.theme["entry_bg"], background=self.theme["accent"], bordercolor=self.theme["line"], lightcolor=self.theme["accent"], darkcolor=self.theme["accent"])
 
         main_frame = ttk.Frame(root, style="App.TFrame")
-        main_frame.pack(fill="both", expand=True, padx=14, pady=14)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
         self.main_frame = main_frame
 
         self.top_region = ttk.Frame(main_frame, style="App.TFrame")
@@ -90,11 +90,11 @@ class EisAnalysisTool:
         self.top_region.pack_propagate(False)
 
         header_frame = ttk.Frame(self.top_region, style="App.TFrame")
-        header_frame.pack(fill="x", pady=(0, 10))
+        header_frame.pack(fill="x", pady=(0, 4))
         ttk.Label(header_frame, text="EIS Analysis Tool", style="Header.TLabel").pack(anchor="w")
 
-        connect_frame = ttk.Frame(self.top_region, style="Card.TFrame", padding=(12, 8))
-        connect_frame.pack(fill="x", pady=(0, 12))
+        connect_frame = ttk.Frame(self.top_region, style="Card.TFrame", padding=(8, 5))
+        connect_frame.pack(fill="x", pady=(0, 6))
         connect_frame.columnconfigure(6, weight=1)
 
         ttk.Label(connect_frame, text="Connection", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", padx=(2, 10))
@@ -104,7 +104,7 @@ class EisAnalysisTool:
         self.device_combo = ttk.Combobox(
             connect_frame,
             textvariable=self.device_var,
-            values=["Sensit BT", "Simulated Mode", "Messy Data", "Calibration"],
+            values=["Sensit BT"],
             state="readonly",
             width=18,
         )
@@ -130,14 +130,14 @@ class EisAnalysisTool:
             text="Status: Disconnected", 
             style="Status.TLabel"
         )
-        self.status_label.grid(row=1, column=0, columnspan=7, sticky="w", padx=(2, 2), pady=(6, 0))
+        self.status_label.grid(row=1, column=0, columnspan=3, sticky="w", padx=(2, 8), pady=(4, 0))
 
         self.top_measurement_label = ttk.Label(
             connect_frame,
             text="Ready",
             style="Muted.Card.TLabel",
         )
-        self.top_measurement_label.grid(row=2, column=0, columnspan=7, sticky="w", padx=(2, 2), pady=(4, 0))
+        self.top_measurement_label.grid(row=1, column=3, columnspan=4, sticky="w", padx=(4, 2), pady=(4, 0))
         
         self.notebook = ttk.Notebook(main_frame)
         self.notebook.pack(fill="both", expand=True, pady=(4, 0))
@@ -282,7 +282,7 @@ class EisAnalysisTool:
             state="disabled"
         )
         self.stop_test_btn.pack(side="left", padx=(10, 0))
-        self.run_test_btn.pack_forget()
+        self.run_test_btn.config(command=self.toggle_run_stop_test)
         self.stop_test_btn.pack_forget()
 
         self.load_progress_lbl = ttk.Label(load_frame, text="No test running", style="Muted.Card.TLabel")
@@ -330,8 +330,8 @@ class EisAnalysisTool:
         
         self.bode_fig = Figure(figsize=(6, 4), dpi=100, facecolor=self.theme["panel"])
         
-        self.bode_ax_mag = self.bode_fig.add_axes([0.15, 0.15, 0.8, 0.75], zorder=1)
-        self.bode_cbar_ax = self.bode_fig.add_axes([0.15, 0.15, 0.03, 0.75], zorder=2)
+        self.bode_ax_mag = self.bode_fig.add_axes([0.18, 0.22, 0.76, 0.68], zorder=1)
+        self.bode_cbar_ax = self.bode_fig.add_axes([0.10, 0.22, 0.04, 0.68], zorder=2)
         
         self.bode_ax_mag.patch.set_alpha(0) 
         self.bode_ax_mag.plot_data = ([], []) 
@@ -433,12 +433,12 @@ class EisAnalysisTool:
         self._apply_top_bottom_split()
 
     def _apply_top_bottom_split(self):
-        """Keep title/connection area in the top 25% and plots/log in the remaining 75%."""
+        """Keep title/connection area compact so plot/log area remains dominant."""
         try:
             total_h = self.main_frame.winfo_height()
             if total_h <= 1:
                 total_h = self.root.winfo_height() - 28
-            target_top_h = int(max(150, total_h * 0.25))
+            target_top_h = int(max(96, total_h * 0.20))
             self.top_region.configure(height=target_top_h)
         except Exception:
             pass
@@ -516,13 +516,17 @@ class EisAnalysisTool:
         try:
             if self.connection_mode is None:
                 self.top_run_btn.config(text="Run Test", command=self.start_run_test_thread, style="Run.TButton", state="disabled")
+                self.run_test_btn.config(text="Run Test", command=self.toggle_run_stop_test, style="Run.TButton", state="disabled")
             elif self.measurement_in_progress:
                 if self.stop_requested:
                     self.top_run_btn.config(text="Stopping...", command=self.request_stop_measurement, style="Stop.TButton", state="disabled")
+                    self.run_test_btn.config(text="Stopping...", command=self.toggle_run_stop_test, style="Stop.TButton", state="disabled")
                 else:
                     self.top_run_btn.config(text="Stop Test", command=self.request_stop_measurement, style="Stop.TButton", state="normal")
+                    self.run_test_btn.config(text="Stop Test", command=self.toggle_run_stop_test, style="Stop.TButton", state="normal")
             else:
                 self.top_run_btn.config(text="Run Test", command=self.start_run_test_thread, style="Run.TButton", state="normal")
+                self.run_test_btn.config(text="Run Test", command=self.toggle_run_stop_test, style="Run.TButton", state="normal")
         except Exception:
             pass
 
@@ -1921,6 +1925,28 @@ class EisAnalysisTool:
         else:
             self.log_message("Stop requested. Sending stop signal to potentiostat...")
             threading.Thread(target=self._send_stop_signal_to_instrument, daemon=True).start()
+            self.root.after(1200, self._force_stop_if_still_running)
+
+    def _force_stop_if_still_running(self):
+        """Fail-safe stop path if SDK stop request does not return promptly."""
+        if not self.measurement_in_progress or not self.stop_requested:
+            return
+        if self.connection_mode not in ("sensit_bt", "sensit_usb"):
+            return
+        try:
+            self.log_message("Force-stopping measurement...")
+            self.disconnect_device()
+        except Exception:
+            pass
+
+    def _interruptible_sleep(self, total_seconds, step_seconds=0.05):
+        """Sleep in short steps so stop requests can interrupt quickly."""
+        end_time = time.time() + max(0.0, float(total_seconds))
+        while time.time() < end_time:
+            if self.stop_requested:
+                return False
+            time.sleep(min(step_seconds, end_time - time.time()))
+        return True
 
     def start_calibration_thread(self):
         """Run 3 real calibration tests on connected Sensit BT instrument."""
@@ -2013,7 +2039,7 @@ class EisAnalysisTool:
 
                 if test_index < 3:
                     self.log_message(f"Calibration: Test {test_index}/3 complete.")
-                    time.sleep(0.6)
+                    self._interruptible_sleep(0.6)
 
             self.root.after(0, self.show_calibration_status_on_plots, None)
             self.root.after(0, self.run_test_btn.config, {"state": "normal"})
@@ -2138,8 +2164,8 @@ class EisAnalysisTool:
                     self.root.after(0, self.progress_var.set, percent)
                     self.root.after(0, self._safe_set_shared_progress_text, f"{percent:.0f}%")
                     self.root.after(0, self.update_plots_incremental, np.array(x_buf), np.array(yr_buf), np.array(yi_buf))
-
-                    time.sleep(interval)
+                    if not self._interruptible_sleep(interval):
+                        break
 
                 if self.stop_requested:
                     break
@@ -2148,7 +2174,7 @@ class EisAnalysisTool:
                     self.log_message(f"Calibration: Test {test_index}/3 complete.")
                     self.root.after(0, self.progress_var.set, 100.0)
                     self.root.after(0, self._safe_set_shared_progress_text, "100%")
-                    time.sleep(0.6)
+                    self._interruptible_sleep(0.6)
                     continue
 
                 # Final pass: run diagnosis and quality checks.
@@ -2547,8 +2573,8 @@ class EisAnalysisTool:
 
                 # Update plots with current subset
                 self.root.after(0, self.update_plots_incremental, np.array(x_buf), np.array(yr_buf), np.array(yi_buf))
-
-                time.sleep(interval)
+                if not self._interruptible_sleep(interval):
+                    break
 
             if len(x_buf) > 0:
                 self.log_message("Test complete. Full data loaded." if not self.stop_requested else "Test stopped.")
@@ -2683,8 +2709,8 @@ class EisAnalysisTool:
                 self.root.after(0, self.progress_var.set, percent)
                 self.root.after(0, self._safe_set_shared_progress_text, f"{percent:.0f}%")
                 self.root.after(0, self.update_plots_incremental, np.array(x_buf), np.array(yr_buf), np.array(yi_buf))
-
-                time.sleep(interval)
+                if not self._interruptible_sleep(interval):
+                    break
 
             if len(x_buf) > 0:
                 self.log_message("Messy-data test complete." if not self.stop_requested else "Messy-data test stopped.")
