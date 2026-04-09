@@ -83,13 +83,17 @@ class EisAnalysisTool:
 
         main_frame = ttk.Frame(root, style="App.TFrame")
         main_frame.pack(fill="both", expand=True, padx=14, pady=14)
+        self.main_frame = main_frame
 
-        header_frame = ttk.Frame(main_frame, style="App.TFrame")
+        self.top_region = ttk.Frame(main_frame, style="App.TFrame")
+        self.top_region.pack(fill="x", expand=False)
+        self.top_region.pack_propagate(False)
+
+        header_frame = ttk.Frame(self.top_region, style="App.TFrame")
         header_frame.pack(fill="x", pady=(0, 10))
         ttk.Label(header_frame, text="EIS Analysis Tool", style="Header.TLabel").pack(anchor="w")
-        ttk.Label(header_frame, text="Application for PalmSens EIS acquisition and diagnostics", style="TLabel").pack(anchor="w", pady=(2, 0))
 
-        connect_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=(12, 8))
+        connect_frame = ttk.Frame(self.top_region, style="Card.TFrame", padding=(12, 8))
         connect_frame.pack(fill="x", pady=(0, 12))
         connect_frame.columnconfigure(6, weight=1)
 
@@ -137,6 +141,7 @@ class EisAnalysisTool:
         
         self.notebook = ttk.Notebook(main_frame)
         self.notebook.pack(fill="both", expand=True, pady=(4, 0))
+        self.root.bind("<Configure>", self._on_root_resize, add="+")
         # Shared progress variable for progress bars (defined before any bar uses it)
         self.progress_var = tk.DoubleVar(value=0.0)
 
@@ -152,6 +157,7 @@ class EisAnalysisTool:
         self.measurement_start_time = None
         self.last_point_time = None
         self.last_point_count = 0
+        self.last_progress_log_time = 0.0
         self.stop_requested = False
         self.callback_debug_count = 0
         self.last_plot_update_time = 0  # Throttle plot updates (milliseconds)
@@ -284,15 +290,14 @@ class EisAnalysisTool:
         self._bind_drag_scroll_to_descendants(self.eis_scroll_content)
         # --- END OF CHANGES TO TAB 1 ---
 
-        # --- Tab 2: Nyquist Plot ---
-        nyquist_tab = ttk.Frame(self.notebook, style="Card.TFrame")
-        self.notebook.add(nyquist_tab, text='Nyquist Plot')
+        # --- Hidden Nyquist Surface (not shown as a tab) ---
+        self.nyquist_hidden_frame = ttk.Frame(self.notebook, style="Card.TFrame")
         self.nyquist_fig = Figure(figsize=(6, 4), dpi=100, facecolor=self.theme["panel"])
         self.nyquist_ax = self.nyquist_fig.add_subplot(111)
-        self.nyquist_canvas = FigureCanvasTkAgg(self.nyquist_fig, master=nyquist_tab)
+        self.nyquist_canvas = FigureCanvasTkAgg(self.nyquist_fig, master=self.nyquist_hidden_frame)
         self.nyquist_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
         
-        nyquist_export_frame = ttk.Frame(nyquist_tab, style="Card.TFrame")
+        nyquist_export_frame = ttk.Frame(self.nyquist_hidden_frame, style="Card.TFrame")
         nyquist_export_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
 
         self.export_nyquist_btn = ttk.Button(
@@ -320,8 +325,8 @@ class EisAnalysisTool:
         self.nyquist_calibration_text = None
         
         # --- Tab 3: Bode Plot (Magnitude Only) ---
-        bode_tab = ttk.Frame(self.notebook, style="Card.TFrame")
-        self.notebook.add(bode_tab, text='Bode Plot')
+        self.bode_tab = ttk.Frame(self.notebook, style="Card.TFrame")
+        self.notebook.add(self.bode_tab, text='Bode Plot')
         
         self.bode_fig = Figure(figsize=(6, 4), dpi=100, facecolor=self.theme["panel"])
         
@@ -340,10 +345,10 @@ class EisAnalysisTool:
         self.bode_eval_point = None
         self.bode_eval_text = None
 
-        self.bode_canvas = FigureCanvasTkAgg(self.bode_fig, master=bode_tab)
+        self.bode_canvas = FigureCanvasTkAgg(self.bode_fig, master=self.bode_tab)
         self.bode_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
 
-        bode_export_frame = ttk.Frame(bode_tab, style="Card.TFrame")
+        bode_export_frame = ttk.Frame(self.bode_tab, style="Card.TFrame")
         bode_export_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
 
         self.export_bode_btn = ttk.Button(
@@ -365,15 +370,15 @@ class EisAnalysisTool:
         self.export_bode_cloud_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
 
         # --- Tab 4: Output Log ---
-        log_tab = ttk.Frame(self.notebook, style="Card.TFrame", padding=(10, 10))
-        self.notebook.add(log_tab, text='Output Log')
+        self.log_tab = ttk.Frame(self.notebook, style="Card.TFrame", padding=(10, 10))
+        self.notebook.add(self.log_tab, text='Output Log')
         # Progress bar shown while a test is running
         self.progress_var = tk.DoubleVar(value=0.0)
-        self.progress_bar = ttk.Progressbar(log_tab, style='Green.Horizontal.TProgressbar', orient='horizontal', mode='determinate', variable=self.progress_var, maximum=100)
+        self.progress_bar = ttk.Progressbar(self.log_tab, style='Green.Horizontal.TProgressbar', orient='horizontal', mode='determinate', variable=self.progress_var, maximum=100)
         self.progress_bar.pack(fill='x', padx=4, pady=(4, 8))
 
         self.output_text = scrolledtext.ScrolledText(
-            log_tab,
+            self.log_tab,
             height=10,
             state="disabled",
             font=("Consolas", 10),
@@ -414,14 +419,29 @@ class EisAnalysisTool:
         self.nyquist_canvas.mpl_connect("motion_notify_event", self.on_plot_hover)
         self.bode_canvas.mpl_connect("motion_notify_event", self.on_plot_hover)
         try:
-            self.notebook.select(self.notebook.tabs()[2])
+            self.notebook.select(self.bode_tab)
         except Exception:
             pass
+        self.root.after(0, self._apply_top_bottom_split)
         self._refresh_top_action_buttons()
 
     # --- REMOVED _create_param_entry ---
 
     # --- Connection Logic (Simulated) ---
+
+    def _on_root_resize(self, _event):
+        self._apply_top_bottom_split()
+
+    def _apply_top_bottom_split(self):
+        """Keep title/connection area in the top 25% and plots/log in the remaining 75%."""
+        try:
+            total_h = self.main_frame.winfo_height()
+            if total_h <= 1:
+                total_h = self.root.winfo_height() - 28
+            target_top_h = int(max(150, total_h * 0.25))
+            self.top_region.configure(height=target_top_h)
+        except Exception:
+            pass
 
     def toggle_connect_disconnect(self):
         """Top-bar connect/disconnect toggle."""
@@ -1122,6 +1142,10 @@ class EisAnalysisTool:
             "diagnosis based on low freq impedance",
             "data quality check: reference",
             "callback error:",
+            "impedance data detected at frequency",
+            "queueing buffered frequencies",
+            "dedupe skipped freq=",
+            "buffering: freq=",
         )
         if any(pattern in low for pattern in drop_patterns):
             return None
@@ -1795,7 +1819,7 @@ class EisAnalysisTool:
             self.bode_canvas.draw()
             
             self.log_message("Plots updated.")
-            self.notebook.select(self.notebook.tabs()[2]) # Switch to Bode plot
+            self.notebook.select(self.bode_tab) # Switch to Bode plot
 
         except Exception as e:
             self.log_message(f"Failed to draw plots: {e}")
@@ -1818,6 +1842,7 @@ class EisAnalysisTool:
         self.measurement_start_time = time.time()
         self.last_point_time = self.measurement_start_time
         self.last_point_count = 0
+        self.last_progress_log_time = self.measurement_start_time
         self.set_export_buttons_enabled(False)
         self.log_test_separator()
         # Clear prior run annotations before starting a new test.
@@ -1829,14 +1854,13 @@ class EisAnalysisTool:
         self.stop_test_btn.config(state="normal")
         # Show the Bode plot while streaming
         try:
-            self.notebook.select(self.notebook.tabs()[2])
+            self.notebook.select(self.bode_tab)
         except Exception:
-            # fallback to last tab if indexing fails
-            self.notebook.select(self.notebook.tabs()[-1])
+            self.notebook.select(self.log_tab)
 
         # Create shared progress bar in the bode tab above the save button
         try:
-            bode_tab_widget = self.notebook.nametowidget(self.notebook.tabs()[2])
+            bode_tab_widget = self.bode_tab
             # If a previous shared widget exists, remove it
             self._destroy_shared_progress_ui()
 
@@ -1912,6 +1936,7 @@ class EisAnalysisTool:
         self.measurement_start_time = time.time()
         self.last_point_time = self.measurement_start_time
         self.last_point_count = 0
+        self.last_progress_log_time = self.measurement_start_time
         self.set_export_buttons_enabled(False)
         self.log_test_separator()
         self.clear_plot_status_overlays()
@@ -1922,12 +1947,12 @@ class EisAnalysisTool:
         self.stop_test_btn.config(state="normal")
 
         try:
-            self.notebook.select(self.notebook.tabs()[2])
+            self.notebook.select(self.bode_tab)
         except Exception:
-            self.notebook.select(self.notebook.tabs()[-1])
+            self.notebook.select(self.log_tab)
 
         try:
-            bode_tab_widget = self.notebook.nametowidget(self.notebook.tabs()[2])
+            bode_tab_widget = self.bode_tab
             self._destroy_shared_progress_ui()
             self.shared_progress_frame = ttk.Frame(bode_tab_widget, style="Card.TFrame")
             self.shared_progress = ttk.Progressbar(
@@ -2203,10 +2228,15 @@ class EisAnalysisTool:
         if not self.measurement_in_progress:
             return
 
+        now = time.time()
         count = self.last_point_count
         n = max(self.expected_points, 1)
 
         self._set_measurement_status(f"Measuring: {count}/{n} points")
+
+        if now - self.last_progress_log_time >= 15.0:
+            self.last_progress_log_time = now
+            self.log_message(f"Progress: {count}/{n} points scanned.")
 
         self.root.after(5000, self.measurement_watchdog_tick)
 
