@@ -74,6 +74,14 @@ class EisAnalysisTool:
         style.map("Run.TButton", background=[("active", "#43ba62"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("Stop.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["danger"], foreground="white", bordercolor=self.theme["danger"])
         style.map("Stop.TButton", background=[("active", "#f06b78"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
+        style.configure("TopPrimary.TButton", font=("Segoe UI Semibold", 10), padding=(10, 5), background=self.theme["accent"], foreground=self.theme["bg"], bordercolor=self.theme["accent"])
+        style.map("TopPrimary.TButton", background=[("active", self.theme["accent_active"]), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
+        style.configure("TopSecondary.TButton", font=("Segoe UI Semibold", 10), padding=(10, 5), background=self.theme["btn_secondary"], foreground=self.theme["text"], bordercolor=self.theme["line"])
+        style.map("TopSecondary.TButton", background=[("active", self.theme["btn_secondary_hover"]), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
+        style.configure("TopRun.TButton", font=("Segoe UI Semibold", 10), padding=(10, 5), background=self.theme["success"], foreground="white", bordercolor=self.theme["success"])
+        style.map("TopRun.TButton", background=[("active", "#43ba62"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
+        style.configure("TopStop.TButton", font=("Segoe UI Semibold", 10), padding=(10, 5), background=self.theme["danger"], foreground="white", bordercolor=self.theme["danger"])
+        style.map("TopStop.TButton", background=[("active", "#f06b78"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("Status.TLabel", background=self.theme["panel"], foreground=self.theme["danger"], font=("Segoe UI", 10, "bold"))
         style.configure("TNotebook", background=self.theme["bg"], borderwidth=0, tabmargins=(2, 2, 2, 0))
         style.configure("TNotebook.Tab", font=("Segoe UI Semibold", 10), background=self.theme["tab_bg"], foreground=self.theme["tab_text"], padding=(16, 8))
@@ -110,17 +118,17 @@ class EisAnalysisTool:
         )
         self.device_combo.grid(row=0, column=2, sticky="w", padx=(0, 10))
 
-        self.connect_btn = ttk.Button(connect_frame, text="Connect", command=self.toggle_connect_disconnect, style="Primary.TButton")
+        self.connect_btn = ttk.Button(connect_frame, text="Connect", command=self.toggle_connect_disconnect, style="TopPrimary.TButton")
         self.connect_btn.grid(row=0, column=3, sticky="w", padx=(0, 6))
 
-        self.top_run_btn = ttk.Button(connect_frame, text="Run Test", command=self.toggle_run_stop_test, style="Run.TButton", state="disabled")
+        self.top_run_btn = ttk.Button(connect_frame, text="Run Test", command=self.toggle_run_stop_test, style="TopRun.TButton", state="disabled")
         self.top_run_btn.grid(row=0, column=4, sticky="w", padx=(0, 6))
 
         self.top_save_btn = ttk.Button(
             connect_frame,
             text="Save Data",
             command=self.save_bode_data_to_flash_drive,
-            style="Secondary.TButton",
+            style="TopSecondary.TButton",
             state="disabled",
         )
         self.top_save_btn.grid(row=0, column=5, sticky="w", padx=(0, 2))
@@ -312,8 +320,8 @@ class EisAnalysisTool:
         
         self.bode_fig = Figure(figsize=(6, 4), dpi=100, facecolor=self.theme["panel"])
         
-        self.bode_ax_mag = self.bode_fig.add_axes([0.24, 0.20, 0.70, 0.70], zorder=1)
-        self.bode_cbar_ax = self.bode_fig.add_axes([0.12, 0.20, 0.03, 0.70], zorder=2)
+        self.bode_ax_mag = self.bode_fig.add_axes([0.20, 0.20, 0.74, 0.70], zorder=1)
+        self.bode_cbar_ax = self.bode_fig.add_axes([0.212, 0.20, 0.022, 0.70], zorder=2)
         
         self.bode_ax_mag.patch.set_alpha(0) 
         self.bode_ax_mag.plot_data = ([], []) 
@@ -485,29 +493,29 @@ class EisAnalysisTool:
         try:
             if self.connection_in_progress:
                 if self.device_var.get().strip() == "Sensit BT":
-                    self.connect_btn.config(text="Cancel", command=self.request_cancel_connect, style="Secondary.TButton", state="normal")
+                    self.connect_btn.config(text="Cancel", command=self.request_cancel_connect, style="TopSecondary.TButton", state="normal")
                 else:
-                    self.connect_btn.config(text="Connecting...", command=self.start_connect_thread, style="Secondary.TButton", state="disabled")
+                    self.connect_btn.config(text="Connecting...", command=self.start_connect_thread, style="TopSecondary.TButton", state="disabled")
             elif self.connection_mode is None:
-                self.connect_btn.config(text="Connect", command=self.start_connect_thread, style="Primary.TButton", state="normal")
+                self.connect_btn.config(text="Connect", command=self.start_connect_thread, style="TopPrimary.TButton", state="normal")
             else:
-                self.connect_btn.config(text="Disconnect", command=self.disconnect_device, style="Stop.TButton", state="normal")
+                self.connect_btn.config(text="Disconnect", command=self.disconnect_device, style="TopStop.TButton", state="normal")
         except Exception:
             pass
 
         try:
             if self.connection_mode is None:
-                self.top_run_btn.config(text="Run Test", command=self.start_run_test_thread, style="Run.TButton", state="disabled")
+                self.top_run_btn.config(text="Run Test", command=self.start_run_test_thread, style="TopRun.TButton", state="disabled")
                 self.run_test_btn.config(text="Run Test", command=self.toggle_run_stop_test, style="Run.TButton", state="disabled")
             elif self.measurement_in_progress:
                 if self.stop_requested:
-                    self.top_run_btn.config(text="Stopping...", command=self.request_stop_measurement, style="Stop.TButton", state="disabled")
+                    self.top_run_btn.config(text="Stopping...", command=self.request_stop_measurement, style="TopStop.TButton", state="disabled")
                     self.run_test_btn.config(text="Stopping...", command=self.toggle_run_stop_test, style="Stop.TButton", state="disabled")
                 else:
-                    self.top_run_btn.config(text="Stop Test", command=self.request_stop_measurement, style="Stop.TButton", state="normal")
+                    self.top_run_btn.config(text="Stop Test", command=self.request_stop_measurement, style="TopStop.TButton", state="normal")
                     self.run_test_btn.config(text="Stop Test", command=self.toggle_run_stop_test, style="Stop.TButton", state="normal")
             else:
-                self.top_run_btn.config(text="Run Test", command=self.start_run_test_thread, style="Run.TButton", state="normal")
+                self.top_run_btn.config(text="Run Test", command=self.start_run_test_thread, style="TopRun.TButton", state="normal")
                 self.run_test_btn.config(text="Run Test", command=self.toggle_run_stop_test, style="Run.TButton", state="normal")
         except Exception:
             pass
