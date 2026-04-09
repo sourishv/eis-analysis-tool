@@ -89,9 +89,9 @@ class EisAnalysisTool:
         ttk.Label(header_frame, text="EIS Analysis Tool", style="Header.TLabel").pack(anchor="w")
         ttk.Label(header_frame, text="Application for PalmSens EIS acquisition and diagnostics", style="TLabel").pack(anchor="w", pady=(2, 0))
 
-        connect_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=(14, 12))
+        connect_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=(12, 8))
         connect_frame.pack(fill="x", pady=(0, 12))
-        connect_frame.columnconfigure(5, weight=1)
+        connect_frame.columnconfigure(6, weight=1)
 
         ttk.Label(connect_frame, text="Connection", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", padx=(2, 10))
 
@@ -106,21 +106,37 @@ class EisAnalysisTool:
         )
         self.device_combo.grid(row=0, column=2, sticky="w", padx=(0, 10))
 
-        self.connect_btn = ttk.Button(connect_frame, text="Connect", command=self.start_connect_thread, style="Primary.TButton")
+        self.connect_btn = ttk.Button(connect_frame, text="Connect", command=self.toggle_connect_disconnect, style="Primary.TButton")
         self.connect_btn.grid(row=0, column=3, sticky="w", padx=(0, 6))
 
-        self.disconnect_btn = ttk.Button(connect_frame, text="Disconnect", command=self.disconnect_device, style="Secondary.TButton", state="disabled")
-        self.disconnect_btn.grid(row=0, column=4, sticky="w", padx=6)
+        self.top_run_btn = ttk.Button(connect_frame, text="Run Test", command=self.toggle_run_stop_test, style="Run.TButton", state="disabled")
+        self.top_run_btn.grid(row=0, column=4, sticky="w", padx=(0, 6))
+
+        self.top_save_btn = ttk.Button(
+            connect_frame,
+            text="Save Data",
+            command=self.save_bode_data_to_flash_drive,
+            style="Secondary.TButton",
+            state="disabled",
+        )
+        self.top_save_btn.grid(row=0, column=5, sticky="w", padx=(0, 2))
 
         self.status_label = ttk.Label(
             connect_frame, 
             text="Status: Disconnected", 
             style="Status.TLabel"
         )
-        self.status_label.grid(row=1, column=0, columnspan=6, sticky="w", padx=(2, 2), pady=(8, 0))
+        self.status_label.grid(row=1, column=0, columnspan=7, sticky="w", padx=(2, 2), pady=(6, 0))
+
+        self.top_measurement_label = ttk.Label(
+            connect_frame,
+            text="Ready",
+            style="Muted.Card.TLabel",
+        )
+        self.top_measurement_label.grid(row=2, column=0, columnspan=7, sticky="w", padx=(2, 2), pady=(4, 0))
         
         self.notebook = ttk.Notebook(main_frame)
-        self.notebook.pack(fill="both", expand=True)
+        self.notebook.pack(fill="both", expand=True, pady=(4, 0))
         # Shared progress variable for progress bars (defined before any bar uses it)
         self.progress_var = tk.DoubleVar(value=0.0)
 
@@ -149,7 +165,9 @@ class EisAnalysisTool:
         self.shared_progress_frame = None
         self.shared_progress = None
         self.shared_progress_label = None
+        self.nyquist_enabled = False
         self._measurement_drag_active = False
+        self._log_drag_last_y = None
         self._osk_launch_cmd = self._detect_onscreen_keyboard_command()
         self._last_osk_launch_time = 0.0
 
@@ -183,8 +201,8 @@ class EisAnalysisTool:
 
         # --- NEW: Load Data Button ---
         # The parameter fields have been removed.
-        load_frame = ttk.Frame(self.eis_scroll_content, style="Card.TFrame", padding=(18, 16))
-        load_frame.pack(fill="both", expand=True)
+        load_frame = ttk.Frame(self.eis_scroll_content, style="Card.TFrame", padding=(14, 12))
+        load_frame.pack(fill="x", expand=False)
 
         ttk.Label(load_frame, text="Measurement Configuration", style="SectionTitle.TLabel").pack(anchor="w")
         ttk.Label(load_frame, text="Tune scan parameters and run the real-time EIS test.", style="Muted.Card.TLabel").pack(anchor="w", pady=(2, 14))
@@ -258,6 +276,8 @@ class EisAnalysisTool:
             state="disabled"
         )
         self.stop_test_btn.pack(side="left", padx=(10, 0))
+        self.run_test_btn.pack_forget()
+        self.stop_test_btn.pack_forget()
 
         self.load_progress_lbl = ttk.Label(load_frame, text="No test running", style="Muted.Card.TLabel")
         self.load_progress_lbl.pack(anchor="w", pady=(8, 0))
@@ -367,6 +387,7 @@ class EisAnalysisTool:
             highlightcolor=self.theme["line"],
         )
         self.output_text.pack(fill="both", expand=True, padx=4, pady=4)
+        self._bind_output_log_touch_scroll()
 
         # --- Initialize Plots & Annotations ---
         self.init_nyquist_plot()
@@ -378,6 +399,7 @@ class EisAnalysisTool:
             color=self.theme["text"],
             arrowprops=dict(arrowstyle="->", color=self.theme["muted"]))
         self.nyquist_annot.set_visible(False)
+        self.nyquist_annot.set_clip_on(False)
 
         self.bode_annot = self.bode_ax_mag.annotate("", xy=(0,0), xytext=(15,15),
             textcoords="offset points",
@@ -385,25 +407,120 @@ class EisAnalysisTool:
             color=self.theme["text"],
             arrowprops=dict(arrowstyle="->", color=self.theme["muted"]))
         self.bode_annot.set_visible(False)
+        self.bode_annot.set_clip_on(False)
+        self.nyquist_annot.set_zorder(200)
+        self.bode_annot.set_zorder(200)
 
         self.nyquist_canvas.mpl_connect("motion_notify_event", self.on_plot_hover)
         self.bode_canvas.mpl_connect("motion_notify_event", self.on_plot_hover)
+        try:
+            self.notebook.select(self.notebook.tabs()[2])
+        except Exception:
+            pass
+        self._refresh_top_action_buttons()
 
     # --- REMOVED _create_param_entry ---
 
     # --- Connection Logic (Simulated) ---
+
+    def toggle_connect_disconnect(self):
+        """Top-bar connect/disconnect toggle."""
+        if self.connection_mode is None:
+            self.start_connect_thread()
+        else:
+            self.disconnect_device()
+
+    def toggle_run_stop_test(self):
+        """Top-bar run/stop test toggle."""
+        if self.measurement_in_progress:
+            self.request_stop_measurement()
+        else:
+            self.start_run_test_thread()
+
+    def _find_flash_drive_path(self):
+        """Return likely removable drive root on Windows, or None if unavailable."""
+        if os.name != "nt":
+            return None
+        system_drive = os.path.splitdrive(os.environ.get("SystemDrive", "C:"))[0].upper()
+        for letter in "DEFGHIJKLMNOPQRSTUVWXYZ":
+            drive = f"{letter}:\\"
+            try:
+                if not os.path.exists(drive):
+                    continue
+                if letter == system_drive.replace(":", ""):
+                    continue
+                return drive
+            except Exception:
+                continue
+        return None
+
+    def save_bode_data_to_flash_drive(self):
+        """Save Bode CSV directly to a connected flash drive when available."""
+        export_df, default_name, dialog_title = self._build_export_dataframe('bode')
+        if export_df is None:
+            self.log_message("No Bode data available to save.")
+            messagebox.showwarning("No Data", "No Bode data available to save.")
+            return
+
+        flash_root = self._find_flash_drive_path()
+        if flash_root is None:
+            self.log_message("No flash drive detected. Opening Save As dialog.")
+            self._save_export_dataframe(export_df, default_name, dialog_title)
+            return
+
+        filename = self._generate_export_filename(default_name)
+        destination = os.path.join(flash_root, filename)
+        try:
+            export_df.to_csv(destination, index=False)
+            self.log_message(f"Bode data saved to flash drive: {destination}")
+            messagebox.showinfo("Save Complete", f"Bode data saved to:\n{destination}")
+        except Exception as e:
+            self.log_message(f"Flash drive save failed: {e}")
+            messagebox.showerror("Save Error", f"Could not save to flash drive:\n{e}")
+
+    def _refresh_top_action_buttons(self):
+        """Keep top action buttons in sync with current connection/test state."""
+        try:
+            if self.connection_in_progress:
+                if self.device_var.get().strip() == "Sensit BT":
+                    self.connect_btn.config(text="Cancel", command=self.request_cancel_connect, style="Secondary.TButton", state="normal")
+                else:
+                    self.connect_btn.config(text="Connecting...", command=self.start_connect_thread, style="Secondary.TButton", state="disabled")
+            elif self.connection_mode is None:
+                self.connect_btn.config(text="Connect", command=self.start_connect_thread, style="Primary.TButton", state="normal")
+            else:
+                self.connect_btn.config(text="Disconnect", command=self.disconnect_device, style="Stop.TButton", state="normal")
+        except Exception:
+            pass
+
+        try:
+            if self.connection_mode is None:
+                self.top_run_btn.config(text="Run Test", command=self.start_run_test_thread, style="Run.TButton", state="disabled")
+            elif self.measurement_in_progress:
+                if self.stop_requested:
+                    self.top_run_btn.config(text="Stopping...", command=self.request_stop_measurement, style="Stop.TButton", state="disabled")
+                else:
+                    self.top_run_btn.config(text="Stop Test", command=self.request_stop_measurement, style="Stop.TButton", state="normal")
+            else:
+                self.top_run_btn.config(text="Run Test", command=self.start_run_test_thread, style="Run.TButton", state="normal")
+        except Exception:
+            pass
+
+        try:
+            has_plot_data = len(np.asarray(self.latest_plot_data.get('frequency', np.array([])))) > 0
+            self.top_save_btn.config(state="normal" if has_plot_data and not self.measurement_in_progress else "disabled")
+        except Exception:
+            pass
 
     def start_connect_thread(self):
         """Connect to selected device mode."""
         selected_device = self.device_var.get().strip()
         self.connection_in_progress = True
         self.cancel_connect_requested = False
-        if selected_device == "Sensit BT":
-            self.connect_btn.config(text="Cancel", command=self.request_cancel_connect, state="normal")
-        else:
+        if selected_device != "Sensit BT":
             self.connect_btn.config(state="disabled")
-        self.disconnect_btn.config(state="disabled")
         self.run_test_btn.config(state="disabled")
+        self._refresh_top_action_buttons()
         self.status_label.config(text="Status: Connecting (USB/Bluetooth)...", foreground=self.theme["warning"])
         threading.Thread(target=self.connect_device, daemon=True).start()
 
@@ -413,6 +530,7 @@ class EisAnalysisTool:
             return
         self.cancel_connect_requested = True
         self.connect_btn.config(state="disabled")
+        self._refresh_top_action_buttons()
         self.status_label.config(text="Status: Cancelling connection...", foreground=self.theme["warning"])
         self.log_message("Cancel requested: connection attempt will stop as soon as possible.")
 
@@ -728,13 +846,13 @@ class EisAnalysisTool:
         self.connection_in_progress = False
         self.cancel_connect_requested = False
         self.status_label.config(text=f"Status: Connected ({connected_label})", foreground=self.theme["success"])
-        self.connect_btn.config(text="Connect", command=self.start_connect_thread, state="disabled")
-        self.disconnect_btn.config(state="normal")
+        self._set_measurement_status("Connected. Ready to start test.")
         self.run_test_btn.config(state="normal")
         if self.connection_mode in ("sensit_bt", "sensit_usb"):
             self.calibrate_btn.config(state="normal")
         else:
             self.calibrate_btn.config(state="disabled")
+        self._refresh_top_action_buttons()
 
     def _bind_entry_touch_focus(self, entry_widget):
         """Improve touch input by forcing focus and opening OSK when available."""
@@ -827,11 +945,11 @@ class EisAnalysisTool:
     def _set_disconnected_ui(self):
         self.connection_in_progress = False
         self.cancel_connect_requested = False
-        self.connect_btn.config(text="Connect", command=self.start_connect_thread, state="normal")
-        self.disconnect_btn.config(state="disabled")
         self.run_test_btn.config(state="disabled")
         self.calibrate_btn.config(state="disabled")
         self.status_label.config(text="Status: Disconnected", foreground=self.theme["danger"])
+        self._set_measurement_status("Ready")
+        self._refresh_top_action_buttons()
 
     # --- Plotting Initialization ---
 
@@ -840,7 +958,7 @@ class EisAnalysisTool:
         self.nyquist_ax.set_facecolor(self.theme["panel"])
         self.nyquist_ax.set_xlabel('Z_real (Ohm)')
         self.nyquist_ax.set_ylabel('-Z_imaginary (Ohm)')
-        self.nyquist_ax.set_title("Nyquist Plot")
+        self.nyquist_ax.set_title("Nyquist Plot (disabled)")
         self.nyquist_ax.grid(True, color=self.theme["line"], linewidth=0.8, alpha=0.8)
         self.nyquist_ax.tick_params(colors=self.theme["muted"])
         self.nyquist_ax.xaxis.label.set_color(self.theme["text"])
@@ -855,6 +973,18 @@ class EisAnalysisTool:
         # are large (scilimits=(0,0)). useMathText makes it look nice.
         self.nyquist_ax.ticklabel_format(style='sci', axis='both', scilimits=(0,0), useMathText=True)
         # --- END NEW ---
+
+        if not self.nyquist_enabled:
+            self.nyquist_ax.text(
+                0.5,
+                0.5,
+                "Nyquist plot generation is disabled.",
+                transform=self.nyquist_ax.transAxes,
+                color=self.theme["muted"],
+                ha='center',
+                va='center',
+                fontsize=11,
+            )
         
         self.nyquist_fig.subplots_adjust(left=0.1, right=0.95, top=0.9, bottom=0.15)
         self.nyquist_canvas.draw()
@@ -954,12 +1084,123 @@ class EisAnalysisTool:
     # --- Measurement Logic (Replaced with Load Logic) ---
 
     def log_message(self, msg):
+        msg = self._sanitize_log_message(msg)
+        if not msg:
+            return
+
         def _log():
             self.output_text.configure(state="normal")
             self.output_text.insert(tk.END, f"{time.strftime('%H:%M:%S')} - {msg}\n")
             self.output_text.see(tk.END)
             self.output_text.configure(state="disabled")
         self.root.after(0, _log)
+
+    def _sanitize_log_message(self, msg):
+        """Keep output log concise and technician-focused."""
+        text = str(msg).strip()
+        if not text:
+            return None
+
+        low = text.lower()
+        drop_patterns = (
+            "[debug",
+            "measurement still running",
+            "frequency jump detected",
+            "quality detail:",
+            "curve-fit residual",
+            "bode trend fit is weak",
+            "curve roughness",
+            "average deviation vs simulated reference",
+            "peak deviation vs simulated reference",
+            "scanning for palmsens instruments",
+            "discovery (",
+            "discovered ",
+            "configured mac",
+            "using configured mac match",
+            "connect attempt ",
+            "hint: ftdi",
+            "diagnosis based on low freq impedance",
+            "data quality check: reference",
+            "callback error:",
+        )
+        if any(pattern in low for pattern in drop_patterns):
+            return None
+
+        if text.startswith("Connected to ") and "(Serial:" in text:
+            return "Device connected."
+        if text.startswith("Measurement finished:"):
+            return "Measurement complete."
+        if text.startswith("Running EIS over Bluetooth:"):
+            return "Running measurement..."
+        if text.startswith("Running calibration stage "):
+            return "Running calibration measurement..."
+        if text.startswith("Starting test using "):
+            return "Starting simulated test..."
+        if text.startswith("Starting messy-data test using "):
+            return "Starting messy-data test..."
+        if text.startswith("Starting calibration sequence using "):
+            return "Starting calibration sequence..."
+        if text.startswith("Stop signal sent using manager."):
+            return "Stop command sent."
+        if text.startswith("Stop method "):
+            return None
+        if text.startswith("No supported stop method found"):
+            return "Unable to stop from software. Disconnect device if needed."
+        if text.startswith("Disconnect warning:"):
+            return "Disconnected with warning."
+
+        return text
+
+    def _set_measurement_status(self, text):
+        """Update measurement status in setup tab and in top connection bar."""
+        try:
+            self.load_progress_lbl.config(text=text)
+        except Exception:
+            pass
+        try:
+            self.top_measurement_label.config(text=text)
+        except Exception:
+            pass
+        self._refresh_top_action_buttons()
+
+    def _clear_plots_for_new_run(self):
+        """Clear previous plot traces immediately when starting a new run."""
+        try:
+            self.bode_line = None
+            self.nyquist_line = None
+            self.init_bode_plot()
+            self.bode_ax_mag.plot_data = ([], [])
+            self.clear_bode_threshold_indicator()
+            self.init_nyquist_plot()
+            self.nyquist_ax.plot_data = ([], [])
+            self.latest_plot_data = {
+                'frequency': np.array([]),
+                'z_real': np.array([]),
+                'z_imag': np.array([]),
+            }
+            self.nyquist_canvas.draw_idle()
+            self.bode_canvas.draw_idle()
+        except Exception as e:
+            self.log_message(f"Could not reset plots: {e}")
+
+    def _bind_output_log_touch_scroll(self):
+        """Enable drag-to-scroll on output log for touch devices."""
+        self.output_text.bind("<ButtonPress-1>", self._on_output_log_drag_start, add="+")
+        self.output_text.bind("<B1-Motion>", self._on_output_log_drag, add="+")
+
+    def _on_output_log_drag_start(self, event):
+        self._log_drag_last_y = event.y
+        return "break"
+
+    def _on_output_log_drag(self, event):
+        if self._log_drag_last_y is None:
+            self._log_drag_last_y = event.y
+            return "break"
+        delta = event.y - self._log_drag_last_y
+        if delta != 0:
+            self.output_text.yview_scroll(int(-delta / 2), "units")
+        self._log_drag_last_y = event.y
+        return "break"
 
     def _safe_set_shared_progress_text(self, text):
         """Safely update shared progress label text if the widget still exists."""
@@ -1198,16 +1439,16 @@ class EisAnalysisTool:
     def report_bode_data_quality(self, freq_data, z_mag_data):
         """Run quality check and publish warning/details to output log and status label."""
         quality = self.assess_bode_data_quality(freq_data, z_mag_data)
-        self.log_message(quality["summary"])
+        if quality["ok"]:
+            self.log_message("Data quality check: OK.")
+        else:
+            self.log_message("Data quality warning: check wiring, probe contact, and setup.")
 
         if quality["ok"]:
             self.root.after(0, self.show_data_quality_on_plots, None)
             return
 
-        for warning in quality.get("warnings", []):
-            self.log_message(f"Quality detail: {warning}")
-
-        self.root.after(0, self.load_progress_lbl.config, {"text": "Warning: data may be messy — check setup"})
+        self.root.after(0, self._set_measurement_status, "Warning: data may be messy - check setup")
         warning_text = "Faulty data detected: check wiring, connections, and setup"
         self.root.after(0, self.show_data_quality_on_plots, warning_text)
         self.root.after(0, self._show_quality_warning_popup, quality)
@@ -1246,17 +1487,27 @@ class EisAnalysisTool:
 
     def set_export_buttons_enabled(self, enabled):
         """Enable/disable plot export buttons together."""
-        state = "normal" if enabled else "disabled"
+        bode_state = "normal" if enabled else "disabled"
         for attr in (
-            "export_nyquist_btn",
-            "export_nyquist_cloud_btn",
             "export_bode_btn",
             "export_bode_cloud_btn",
         ):
             btn = getattr(self, attr, None)
             if btn is not None:
                 try:
-                    btn.config(state=state)
+                    btn.config(state=bode_state)
+                except Exception:
+                    pass
+
+        nyquist_state = "normal" if (enabled and self.nyquist_enabled) else "disabled"
+        for attr in (
+            "export_nyquist_btn",
+            "export_nyquist_cloud_btn",
+        ):
+            btn = getattr(self, attr, None)
+            if btn is not None:
+                try:
+                    btn.config(state=nyquist_state)
                 except Exception:
                     pass
 
@@ -1266,18 +1517,19 @@ class EisAnalysisTool:
             if warning_text:
                 badge_style = dict(boxstyle='round', facecolor=self.theme['diag_fail'], alpha=0.92)
 
-                if self.nyquist_quality_text is None:
-                    self.nyquist_quality_text = self.nyquist_ax.text(
-                        0.5, 0.04, warning_text,
-                        transform=self.nyquist_ax.transAxes,
-                        fontsize=11, fontweight='bold', color='white',
-                        horizontalalignment='center', verticalalignment='bottom',
-                        bbox=badge_style,
-                    )
-                else:
-                    self.nyquist_quality_text.set_text(warning_text)
-                    self.nyquist_quality_text.set_bbox(badge_style)
-                    self.nyquist_quality_text.set_visible(True)
+                if self.nyquist_enabled:
+                    if self.nyquist_quality_text is None:
+                        self.nyquist_quality_text = self.nyquist_ax.text(
+                            0.5, 0.04, warning_text,
+                            transform=self.nyquist_ax.transAxes,
+                            fontsize=11, fontweight='bold', color='white',
+                            horizontalalignment='center', verticalalignment='bottom',
+                            bbox=badge_style,
+                        )
+                    else:
+                        self.nyquist_quality_text.set_text(warning_text)
+                        self.nyquist_quality_text.set_bbox(badge_style)
+                        self.nyquist_quality_text.set_visible(True)
 
                 if self.bode_quality_text is None:
                     self.bode_quality_text = self.bode_ax_mag.text(
@@ -1292,15 +1544,16 @@ class EisAnalysisTool:
                     self.bode_quality_text.set_bbox(badge_style)
                     self.bode_quality_text.set_visible(True)
             else:
-                if self.nyquist_quality_text is not None:
+                if self.nyquist_enabled and self.nyquist_quality_text is not None:
                     self.nyquist_quality_text.set_visible(False)
                 if self.bode_quality_text is not None:
                     self.bode_quality_text.set_visible(False)
 
-            try:
-                self.nyquist_canvas.draw_idle()
-            except Exception:
-                pass
+            if self.nyquist_enabled:
+                try:
+                    self.nyquist_canvas.draw_idle()
+                except Exception:
+                    pass
             try:
                 self.bode_canvas.draw_idle()
             except Exception:
@@ -1314,18 +1567,19 @@ class EisAnalysisTool:
             if status_text:
                 badge_style = dict(boxstyle='round', facecolor=self.theme['warning'], alpha=0.95)
 
-                if self.nyquist_calibration_text is None:
-                    self.nyquist_calibration_text = self.nyquist_ax.text(
-                        0.5, 0.90, status_text,
-                        transform=self.nyquist_ax.transAxes,
-                        fontsize=14, fontweight='bold', color='black',
-                        horizontalalignment='center', verticalalignment='top',
-                        bbox=badge_style,
-                    )
-                else:
-                    self.nyquist_calibration_text.set_text(status_text)
-                    self.nyquist_calibration_text.set_bbox(badge_style)
-                    self.nyquist_calibration_text.set_visible(True)
+                if self.nyquist_enabled:
+                    if self.nyquist_calibration_text is None:
+                        self.nyquist_calibration_text = self.nyquist_ax.text(
+                            0.5, 0.90, status_text,
+                            transform=self.nyquist_ax.transAxes,
+                            fontsize=14, fontweight='bold', color='black',
+                            horizontalalignment='center', verticalalignment='top',
+                            bbox=badge_style,
+                        )
+                    else:
+                        self.nyquist_calibration_text.set_text(status_text)
+                        self.nyquist_calibration_text.set_bbox(badge_style)
+                        self.nyquist_calibration_text.set_visible(True)
 
                 if self.bode_calibration_text is None:
                     self.bode_calibration_text = self.bode_ax_mag.text(
@@ -1340,15 +1594,16 @@ class EisAnalysisTool:
                     self.bode_calibration_text.set_bbox(badge_style)
                     self.bode_calibration_text.set_visible(True)
             else:
-                if self.nyquist_calibration_text is not None:
+                if self.nyquist_enabled and self.nyquist_calibration_text is not None:
                     self.nyquist_calibration_text.set_visible(False)
                 if self.bode_calibration_text is not None:
                     self.bode_calibration_text.set_visible(False)
 
-            try:
-                self.nyquist_canvas.draw_idle()
-            except Exception:
-                pass
+            if self.nyquist_enabled:
+                try:
+                    self.nyquist_canvas.draw_idle()
+                except Exception:
+                    pass
             try:
                 self.bode_canvas.draw_idle()
             except Exception:
@@ -1523,17 +1778,14 @@ class EisAnalysisTool:
             z_imag_neg = -z_imag
             
             # --- 1. Nyquist Plot ---
-            self.init_nyquist_plot() # Clears, sets formatters
-            self.nyquist_ax.plot(z_real, z_imag_neg, 'o-', markersize=4, color=self.theme["accent"])
-            self.nyquist_ax.plot_data = (z_real, z_imag_neg)
-            self.nyquist_ax.relim()
-            self.nyquist_ax.autoscale_view()
-            
-            # --- NEW: Add axis('equal') back ---
-            # This makes the plot scales 1:1, just like MATLAB
-            self.nyquist_ax.axis('equal') 
-            
-            self.nyquist_canvas.draw()
+            if self.nyquist_enabled:
+                self.init_nyquist_plot() # Clears, sets formatters
+                self.nyquist_ax.plot(z_real, z_imag_neg, 'o-', markersize=4, color=self.theme["accent"])
+                self.nyquist_ax.plot_data = (z_real, z_imag_neg)
+                self.nyquist_ax.relim()
+                self.nyquist_ax.autoscale_view()
+                self.nyquist_ax.axis('equal')
+                self.nyquist_canvas.draw()
 
             # --- 2. Bode Plot ---
             self.init_bode_plot() 
@@ -1570,6 +1822,7 @@ class EisAnalysisTool:
         self.log_test_separator()
         # Clear prior run annotations before starting a new test.
         self.clear_plot_status_overlays()
+        self._clear_plots_for_new_run()
         # Disable button and switch to log
         self.run_test_btn.config(state="disabled")
         self.calibrate_btn.config(state="disabled")
@@ -1610,13 +1863,13 @@ class EisAnalysisTool:
 
         self.root.after(0, self.progress_var.set, 0.0)
         if self.connection_mode == "simulated":
-            self.load_progress_lbl.config(text="Starting simulated test...")
+            self._set_measurement_status("Starting simulated test...")
         elif self.connection_mode == "messy":
-            self.load_progress_lbl.config(text="Starting messy data simulation...")
+            self._set_measurement_status("Starting messy data simulation...")
         elif self.connection_mode == "calibration":
-            self.load_progress_lbl.config(text="Starting calibration sequence (3 tests)...")
+            self._set_measurement_status("Starting calibration sequence (3 tests)...")
         else:
-            self.load_progress_lbl.config(text="Starting EIS measurement...")
+            self._set_measurement_status("Starting measurement...")
         self.root.after(5000, self.measurement_watchdog_tick)
         if self.connection_mode == "simulated":
             csv_path = os.path.join(os.path.dirname(__file__), "11_12_25_test5.csv")
@@ -1638,7 +1891,7 @@ class EisAnalysisTool:
 
         self.stop_requested = True
         self.stop_test_btn.config(state="disabled")
-        self.load_progress_lbl.config(text="Stopping measurement...")
+        self._set_measurement_status("Stopping measurement...")
         if self.connection_mode in ("simulated", "messy", "calibration"):
             self.log_message("Stop requested for simulated test.")
         else:
@@ -1662,6 +1915,7 @@ class EisAnalysisTool:
         self.set_export_buttons_enabled(False)
         self.log_test_separator()
         self.clear_plot_status_overlays()
+        self._clear_plots_for_new_run()
 
         self.run_test_btn.config(state="disabled")
         self.calibrate_btn.config(state="disabled")
@@ -1695,7 +1949,7 @@ class EisAnalysisTool:
             pass
 
         self.root.after(0, self.progress_var.set, 0.0)
-        self.load_progress_lbl.config(text="Starting real calibration sequence (3 tests)...")
+        self._set_measurement_status("Starting calibration sequence (3 tests)...")
         self.root.after(5000, self.measurement_watchdog_tick)
         threading.Thread(target=self.run_real_calibration_sequence, daemon=True).start()
 
@@ -1711,11 +1965,11 @@ class EisAnalysisTool:
                 self.root.after(0, self.clear_plot_status_overlays)
                 if test_index < 3:
                     self.log_message(f"Calibration: Test {test_index}/3")
-                    self.root.after(0, self.load_progress_lbl.config, {"text": f"Calibration: Test {test_index}/3"})
+                    self.root.after(0, self._set_measurement_status, f"Calibration: Test {test_index}/3")
                     self.root.after(0, self.show_calibration_status_on_plots, f"CALIBRATING: TEST {test_index}/3")
                 else:
                     self.log_message("Calibration complete. Running final test (3/3)...")
-                    self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration complete. Running final test (3/3)"})
+                    self.root.after(0, self._set_measurement_status, "Calibration complete. Running final test (3/3)")
                     self.root.after(0, self.show_calibration_status_on_plots, "FINAL TEST: 3/3")
 
                 self.root.after(0, self.progress_var.set, 0.0)
@@ -1745,11 +1999,11 @@ class EisAnalysisTool:
             self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
 
             if self.stop_requested:
-                self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration sequence stopped"})
+                self.root.after(0, self._set_measurement_status, "Calibration sequence stopped")
                 self.root.after(0, self._safe_set_shared_progress_text, "Stopped")
                 self.root.after(0, self._show_calibration_result_popup, False)
             else:
-                self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration sequence finished"})
+                self.root.after(0, self._set_measurement_status, "Calibration sequence finished")
                 self.root.after(0, self.progress_var.set, 100.0)
                 self.root.after(0, self._safe_set_shared_progress_text, "100%")
                 self.root.after(0, self._show_calibration_result_popup, True)
@@ -1831,11 +2085,11 @@ class EisAnalysisTool:
 
                 if test_index < 3:
                     self.log_message(f"Calibration: Test {test_index}/3")
-                    self.root.after(0, self.load_progress_lbl.config, {"text": f"Calibration: Test {test_index}/3"})
+                    self.root.after(0, self._set_measurement_status, f"Calibration: Test {test_index}/3")
                     self.root.after(0, self.show_calibration_status_on_plots, f"CALIBRATING: TEST {test_index}/3")
                 else:
                     self.log_message("Calibration complete. Running final test (3/3)...")
-                    self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration complete. Running final test (3/3)"})
+                    self.root.after(0, self._set_measurement_status, "Calibration complete. Running final test (3/3)")
                     self.root.after(0, self.show_calibration_status_on_plots, "FINAL TEST: 3/3")
 
                 self.root.after(0, self.progress_var.set, 0.0)
@@ -1853,9 +2107,9 @@ class EisAnalysisTool:
 
                     percent = (i + 1) / n * 100.0
                     if test_index < 3:
-                        self.root.after(0, self.load_progress_lbl.config, {"text": f"Calibration: Test {test_index}/3 • {i+1}/{n} points"})
+                        self.root.after(0, self._set_measurement_status, f"Measuring: {i+1}/{n} points (Calibration {test_index}/3)")
                     else:
-                        self.root.after(0, self.load_progress_lbl.config, {"text": f"Final Test: 3/3 • {i+1}/{n} points"})
+                        self.root.after(0, self._set_measurement_status, f"Measuring: {i+1}/{n} points (Final 3/3)")
                     self.root.after(0, self.progress_var.set, percent)
                     self.root.after(0, self._safe_set_shared_progress_text, f"{percent:.0f}%")
                     self.root.after(0, self.update_plots_incremental, np.array(x_buf), np.array(yr_buf), np.array(yi_buf))
@@ -1886,12 +2140,12 @@ class EisAnalysisTool:
             self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
             if self.stop_requested:
                 self.root.after(0, self.show_calibration_status_on_plots, None)
-                self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration sequence stopped"})
+                self.root.after(0, self._set_measurement_status, "Calibration sequence stopped")
                 self.root.after(0, self._safe_set_shared_progress_text, "Stopped")
                 self.root.after(0, self._show_calibration_result_popup, False)
             else:
                 self.root.after(0, self.show_calibration_status_on_plots, None)
-                self.root.after(0, self.load_progress_lbl.config, {"text": "Calibration sequence finished"})
+                self.root.after(0, self._set_measurement_status, "Calibration sequence finished")
                 self.root.after(0, self.progress_var.set, 100.0)
                 self.root.after(0, self._safe_set_shared_progress_text, "100%")
                 self.root.after(0, self._show_calibration_result_popup, True)
@@ -1949,22 +2203,10 @@ class EisAnalysisTool:
         if not self.measurement_in_progress:
             return
 
-        now = time.time()
-        elapsed = now - (self.measurement_start_time or now)
-        since_last = now - (self.last_point_time or now)
         count = self.last_point_count
         n = max(self.expected_points, 1)
 
-        # Keep the status label alive even when callback is quiet.
-        self.load_progress_lbl.config(
-            text=f"Measuring: {count}/{n} points • elapsed {elapsed:.0f}s • last point {since_last:.0f}s ago"
-        )
-
-        # Emit a periodic log only when callback has been quiet for a while.
-        if since_last >= 20:
-            self.log_message(
-                f"Measurement still running: {count}/{n} points, no new point for {since_last:.0f}s (low-frequency points can take longer)."
-            )
+        self._set_measurement_status(f"Measuring: {count}/{n} points")
 
         self.root.after(5000, self.measurement_watchdog_tick)
 
@@ -2134,11 +2376,6 @@ class EisAnalysisTool:
                         continue
                     seen_points.add(sig)
 
-                    prev_freq = last_freq_seen[0]
-                    if prev_freq is not None and freq < (prev_freq / 3.0):
-                        self.log_message(
-                            f"Frequency jump detected: {prev_freq:.2e} -> {freq:.2e} Hz (ratio {freq/prev_freq:.3f}, possible skipped callback payload)."
-                        )
                     last_freq_seen[0] = freq
 
                     freq_buf.append(freq)
@@ -2151,7 +2388,7 @@ class EisAnalysisTool:
                     n = max(self.expected_points, 1)
                     percent = min(100.0, (i / n) * 100.0)
                     self.root.after(0, self.progress_var.set, percent)
-                    self.root.after(0, self.load_progress_lbl.config, {"text": f"Measuring: {i}/{n} points"})
+                    self.root.after(0, self._set_measurement_status, f"Measuring: {i}/{n} points")
                     self.root.after(0, self._safe_set_shared_progress_text, f"{percent:.0f}%")
                     
                     # Throttle plot updates to prevent overwhelming the UI and blocking mouse events
@@ -2202,21 +2439,21 @@ class EisAnalysisTool:
                     self.root.after(0, self.show_diagnosis_on_plots, diagnosis_result)
 
             if self.stop_requested:
-                self.root.after(0, self.load_progress_lbl.config, {"text": "Measurement stopped"})
+                self.root.after(0, self._set_measurement_status, "Measurement stopped")
                 self.log_message("Measurement stopped by user.")
             else:
                 self.root.after(0, self.progress_var.set, 100.0)
-                self.root.after(0, self.load_progress_lbl.config, {"text": "Test finished"})
+                self.root.after(0, self._set_measurement_status, "Test finished")
                 self.root.after(0, self.set_export_buttons_enabled, True)
             self.root.after(0, self._safe_set_shared_progress_text, "100%" if not self.stop_requested else "Stopped")
         except Exception as e:
             if self.stop_requested:
                 self.log_message("Measurement stop completed.")
-                self.root.after(0, self.load_progress_lbl.config, {"text": "Measurement stopped"})
+                self.root.after(0, self._set_measurement_status, "Measurement stopped")
             else:
                 self.log_message(f"Real EIS measurement failed: {e}")
                 self.root.after(0, self.progress_var.set, 0.0)
-                self.root.after(0, self.load_progress_lbl.config, {"text": "Measurement failed"})
+                self.root.after(0, self._set_measurement_status, "Measurement failed")
             self.root.after(0, self._safe_set_shared_progress_text, "0%" if not self.stop_requested else "Stopped")
         finally:
             if manage_lifecycle:
@@ -2272,7 +2509,7 @@ class EisAnalysisTool:
 
                 # Update progress label on main thread
                 percent = (i+1) / n * 100.0
-                self.root.after(0, self.load_progress_lbl.config, {"text": f"Loading: {i+1}/{n} points"})
+                self.root.after(0, self._set_measurement_status, f"Measuring: {i+1}/{n} points")
                 # Update progress variable
                 self.root.after(0, self.progress_var.set, percent)
                 # Update shared progress label if present
@@ -2303,7 +2540,7 @@ class EisAnalysisTool:
             # Re-enable button and reset progress
             self.root.after(0, self.run_test_btn.config, {"state": "normal"})
             self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
-            self.root.after(0, self.load_progress_lbl.config, {"text": "Test finished" if not self.stop_requested else "Measurement stopped"})
+            self.root.after(0, self._set_measurement_status, "Test finished" if not self.stop_requested else "Measurement stopped")
             if not self.stop_requested:
                 self.root.after(0, self.progress_var.set, 100.0)
                 self.root.after(0, self.set_export_buttons_enabled, True)
@@ -2412,7 +2649,7 @@ class EisAnalysisTool:
                 yi_buf.append(z_imag[i])
 
                 percent = (i + 1) / n * 100.0
-                self.root.after(0, self.load_progress_lbl.config, {"text": f"Loading messy data: {i+1}/{n} points"})
+                self.root.after(0, self._set_measurement_status, f"Measuring: {i+1}/{n} points")
                 self.root.after(0, self.progress_var.set, percent)
                 self.root.after(0, self._safe_set_shared_progress_text, f"{percent:.0f}%")
                 self.root.after(0, self.update_plots_incremental, np.array(x_buf), np.array(yr_buf), np.array(yi_buf))
@@ -2435,7 +2672,7 @@ class EisAnalysisTool:
             self.root.after(0, self._destroy_shared_progress_ui)
             self.root.after(0, self.run_test_btn.config, {"state": "normal"})
             self.root.after(0, self.stop_test_btn.config, {"state": "disabled"})
-            self.root.after(0, self.load_progress_lbl.config, {"text": "Messy-data test finished" if not self.stop_requested else "Measurement stopped"})
+            self.root.after(0, self._set_measurement_status, "Messy-data test finished" if not self.stop_requested else "Measurement stopped")
             if not self.stop_requested:
                 self.root.after(0, self.progress_var.set, 100.0)
                 self.root.after(0, self.set_export_buttons_enabled, True)
@@ -2463,25 +2700,24 @@ class EisAnalysisTool:
             z_mag = np.sqrt(z_real_subset**2 + z_imag_subset**2)
             z_imag_neg = -z_imag_subset
 
-            # --- Nyquist: create or update a persistent Line2D to avoid clearing the axes ---
-            if self.nyquist_line is None:
-                # create the initial line on existing axes (axes already initialized in init_nyquist_plot)
-                (self.nyquist_line,) = self.nyquist_ax.plot(z_real_subset, z_imag_neg, 'o-', markersize=4, color=self.theme["accent"])
-                self.nyquist_ax.plot_data = (z_real_subset, z_imag_neg)
-                try:
-                    self.nyquist_ax.axis('equal')
-                except Exception:
-                    pass
-            else:
-                self.nyquist_line.set_data(z_real_subset, z_imag_neg)
-                self.nyquist_ax.plot_data = (z_real_subset, z_imag_neg)
-                # update view limits without reinitializing the axes
-                try:
-                    self.nyquist_ax.relim()
-                    self.nyquist_ax.autoscale_view()
-                except Exception:
-                    pass
-            self.nyquist_canvas.draw_idle()
+            # --- Nyquist plotting is currently disabled ---
+            if self.nyquist_enabled:
+                if self.nyquist_line is None:
+                    (self.nyquist_line,) = self.nyquist_ax.plot(z_real_subset, z_imag_neg, 'o-', markersize=4, color=self.theme["accent"])
+                    self.nyquist_ax.plot_data = (z_real_subset, z_imag_neg)
+                    try:
+                        self.nyquist_ax.axis('equal')
+                    except Exception:
+                        pass
+                else:
+                    self.nyquist_line.set_data(z_real_subset, z_imag_neg)
+                    self.nyquist_ax.plot_data = (z_real_subset, z_imag_neg)
+                    try:
+                        self.nyquist_ax.relim()
+                        self.nyquist_ax.autoscale_view()
+                    except Exception:
+                        pass
+                self.nyquist_canvas.draw_idle()
 
             # --- Bode: update persistent line on log-scaled axes ---
             safe_freq = np.where(freq_subset <= 0, 1e-6, freq_subset)
@@ -2522,20 +2758,21 @@ class EisAnalysisTool:
             short = diagnosis_text
 
             # Nyquist: place in upper-left corner
-            try:
-                if self.nyquist_diag_text is None:
-                    self.nyquist_diag_text = self.nyquist_ax.text(
-                        0.12, 0.95, short,
-                        transform=self.nyquist_ax.transAxes,
-                        fontsize=12, fontweight='bold', color=fg,
-                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor=face, alpha=0.9)
-                    )
-                else:
-                    self.nyquist_diag_text.set_text(short)
-                    self.nyquist_diag_text.set_bbox(dict(boxstyle='round', facecolor=face, alpha=0.9))
-                    self.nyquist_diag_text.set_color(fg)
-            except Exception:
-                pass
+            if self.nyquist_enabled:
+                try:
+                    if self.nyquist_diag_text is None:
+                        self.nyquist_diag_text = self.nyquist_ax.text(
+                            0.12, 0.95, short,
+                            transform=self.nyquist_ax.transAxes,
+                            fontsize=12, fontweight='bold', color=fg,
+                            verticalalignment='top', bbox=dict(boxstyle='round', facecolor=face, alpha=0.9)
+                        )
+                    else:
+                        self.nyquist_diag_text.set_text(short)
+                        self.nyquist_diag_text.set_bbox(dict(boxstyle='round', facecolor=face, alpha=0.9))
+                        self.nyquist_diag_text.set_color(fg)
+                except Exception:
+                    pass
 
             # Bode: place in upper-left corner
             try:
@@ -2554,10 +2791,11 @@ class EisAnalysisTool:
                 pass
 
             # Redraw canvases
-            try:
-                self.nyquist_canvas.draw_idle()
-            except Exception:
-                pass
+            if self.nyquist_enabled:
+                try:
+                    self.nyquist_canvas.draw_idle()
+                except Exception:
+                    pass
             try:
                 self.bode_canvas.draw_idle()
             except Exception:
