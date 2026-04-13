@@ -25,28 +25,28 @@ class EisAnalysisTool:
         self.root.minsize(980, 680)
 
         self.theme = {
-            "bg": "#0f141b",
-            "panel": "#171f29",
-            "panel_alt": "#1c2633",
-            "text": "#e9eff7",
-            "muted": "#a8b8cb",
-            "accent": "#3b82f6",
-            "accent_active": "#5a97f7",
-            "success": "#34a853",
-            "warning": "#dca64a",
-            "danger": "#e35d6a",
-            "line": "#2f3f53",
-            "line_soft": "#243140",
-            "entry_bg": "#121a24",
-            "tab_bg": "#1a2430",
-            "tab_text": "#d8e3f0",
-            "tab_hover": "#24364c",
-            "btn_secondary": "#24364c",
-            "btn_secondary_hover": "#2c4561",
-            "btn_disabled": "#1e2a37",
-            "diag_fail": "#b9434f",
-            "diag_caution": "#be8a3a",
-            "diag_pass": "#3f9353",
+            "bg": "#2b3e50",
+            "panel": "#32465a",
+            "panel_alt": "#3b5166",
+            "text": "#ffffff",
+            "muted": "#b9c6d3",
+            "accent": "#4e9de6",
+            "accent_active": "#6bb1f0",
+            "success": "#5cb85c",
+            "warning": "#f0ad4e",
+            "danger": "#d9534f",
+            "line": "#47627c",
+            "line_soft": "#3d556e",
+            "entry_bg": "#263849",
+            "tab_bg": "#31465a",
+            "tab_text": "#edf3f9",
+            "tab_hover": "#3b546c",
+            "btn_secondary": "#3a5269",
+            "btn_secondary_hover": "#4a6682",
+            "btn_disabled": "#2a3d4f",
+            "diag_fail": "#d9534f",
+            "diag_caution": "#f0ad4e",
+            "diag_pass": "#5cb85c",
         }
         self.root.configure(bg=self.theme["bg"])
 
@@ -71,17 +71,17 @@ class EisAnalysisTool:
         style.configure("Secondary.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["btn_secondary"], foreground=self.theme["text"], bordercolor=self.theme["line"])
         style.map("Secondary.TButton", background=[("active", self.theme["btn_secondary_hover"]), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("Run.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["success"], foreground="white", bordercolor=self.theme["success"])
-        style.map("Run.TButton", background=[("active", "#43ba62"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
+        style.map("Run.TButton", background=[("active", "#79cc79"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("Stop.TButton", font=("Segoe UI Semibold", 11), padding=(14, 9), background=self.theme["danger"], foreground="white", bordercolor=self.theme["danger"])
-        style.map("Stop.TButton", background=[("active", "#f06b78"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
+        style.map("Stop.TButton", background=[("active", "#eb706c"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("TopPrimary.TButton", font=("Segoe UI Semibold", 10), padding=(10, 5), background=self.theme["accent"], foreground=self.theme["bg"], bordercolor=self.theme["accent"])
         style.map("TopPrimary.TButton", background=[("active", self.theme["accent_active"]), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("TopSecondary.TButton", font=("Segoe UI Semibold", 10), padding=(10, 5), background=self.theme["btn_secondary"], foreground=self.theme["text"], bordercolor=self.theme["line"])
         style.map("TopSecondary.TButton", background=[("active", self.theme["btn_secondary_hover"]), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("TopRun.TButton", font=("Segoe UI Semibold", 10), padding=(10, 5), background=self.theme["success"], foreground="white", bordercolor=self.theme["success"])
-        style.map("TopRun.TButton", background=[("active", "#43ba62"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
+        style.map("TopRun.TButton", background=[("active", "#79cc79"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("TopStop.TButton", font=("Segoe UI Semibold", 10), padding=(10, 5), background=self.theme["danger"], foreground="white", bordercolor=self.theme["danger"])
-        style.map("TopStop.TButton", background=[("active", "#f06b78"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
+        style.map("TopStop.TButton", background=[("active", "#eb706c"), ("disabled", self.theme["btn_disabled"])], foreground=[("disabled", self.theme["muted"])])
         style.configure("Status.TLabel", background=self.theme["panel"], foreground=self.theme["danger"], font=("Segoe UI", 10, "bold"))
         style.configure("TNotebook", background=self.theme["bg"], borderwidth=0, tabmargins=(2, 2, 2, 0))
         style.configure("TNotebook.Tab", font=("Segoe UI Semibold", 10), background=self.theme["tab_bg"], foreground=self.theme["tab_text"], padding=(16, 8))
@@ -213,35 +213,61 @@ class EisAnalysisTool:
         self.eis_scroll_content.bind("<ButtonPress-1>", self._on_measurement_drag_start, add="+")
         self.eis_scroll_content.bind("<B1-Motion>", self._on_measurement_drag, add="+")
 
-        # --- NEW: Load Data Button ---
-        # The parameter fields have been removed.
-        load_frame = ttk.Frame(self.eis_scroll_content, style="Card.TFrame", padding=(10, 8))
+        load_frame = ttk.Frame(self.eis_scroll_content, style="Card.TFrame", padding=(12, 10))
         load_frame.pack(fill="x", expand=False)
 
         ttk.Label(load_frame, text="Measurement Configuration", style="SectionTitle.TLabel").pack(anchor="w")
-
-        # --- Editable EIS parameter fields ---
-        params = [
-            ("Start Frequency (Hz)", "1e5"),
-            ("End Frequency (Hz)", "1e-1"),
-            ("Voltage Amplitude (mV)", "50"),
-            ("Points per Decade", "5"),
-        ]
+        ttk.Label(
+            load_frame,
+            text="Use preset test ranges for faster setup and fewer typing errors.",
+            style="Muted.Card.TLabel",
+        ).pack(anchor="w", pady=(2, 8))
 
         self.param_vars = {}
-        params_frame = ttk.Frame(load_frame, style="InnerCard.TFrame", padding=(10, 8))
-        params_frame.pack(fill="x", pady=(0, 6))
-        params_frame.columnconfigure(0, weight=0)
+        params_frame = ttk.Frame(load_frame, style="InnerCard.TFrame", padding=(12, 10))
+        params_frame.pack(fill="x", pady=(0, 8))
+        params_frame.columnconfigure(0, weight=1)
         params_frame.columnconfigure(1, weight=1)
 
-        for i, (label_text, default) in enumerate(params):
-            lbl = ttk.Label(params_frame, text=label_text, style="Inner.Card.TLabel")
-            lbl.grid(row=i, column=0, sticky="w", padx=(0, 10), pady=(1, 1))
-            var = tk.StringVar(value=default)
-            ent = ttk.Entry(params_frame, textvariable=var, width=20)
-            ent.grid(row=i, column=1, sticky="ew", pady=(1, 1))
-            self._bind_entry_touch_focus(ent)
-            self.param_vars[label_text] = var
+        # Start Frequency (typed input)
+        start_card = ttk.Frame(params_frame, style="Card.TFrame", padding=(10, 8))
+        start_card.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        start_card.columnconfigure(0, weight=1)
+        ttk.Label(start_card, text="Start Frequency (Hz)", style="Card.TLabel").grid(row=0, column=0, sticky="w")
+        self.param_vars["Start Frequency (Hz)"] = tk.StringVar(value="1e5")
+        start_entry = ttk.Entry(start_card, textvariable=self.param_vars["Start Frequency (Hz)"], width=18)
+        start_entry.grid(row=1, column=0, sticky="ew", pady=(5, 0))
+        self._bind_entry_touch_focus(start_entry)
+
+        # End Frequency (typed input)
+        end_card = ttk.Frame(params_frame, style="Card.TFrame", padding=(10, 8))
+        end_card.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
+        end_card.columnconfigure(0, weight=1)
+        ttk.Label(end_card, text="End Frequency (Hz)", style="Card.TLabel").grid(row=0, column=0, sticky="w")
+        self.param_vars["End Frequency (Hz)"] = tk.StringVar(value="1e-1")
+        end_entry = ttk.Entry(end_card, textvariable=self.param_vars["End Frequency (Hz)"], width=18)
+        end_entry.grid(row=1, column=0, sticky="ew", pady=(5, 0))
+        self._bind_entry_touch_focus(end_entry)
+
+        # Voltage Amplitude (typed input)
+        amp_card = ttk.Frame(params_frame, style="Card.TFrame", padding=(10, 8))
+        amp_card.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        amp_card.columnconfigure(0, weight=1)
+        ttk.Label(amp_card, text="Voltage Amplitude (mV)", style="Card.TLabel").grid(row=0, column=0, sticky="w")
+        self.param_vars["Voltage Amplitude (mV)"] = tk.StringVar(value="50")
+        amp_entry = ttk.Entry(amp_card, textvariable=self.param_vars["Voltage Amplitude (mV)"], width=18)
+        amp_entry.grid(row=1, column=0, sticky="ew", pady=(5, 0))
+        self._bind_entry_touch_focus(amp_entry)
+
+        # Points per Decade (typed input)
+        ppd_card = ttk.Frame(params_frame, style="Card.TFrame", padding=(10, 8))
+        ppd_card.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
+        ppd_card.columnconfigure(0, weight=1)
+        ttk.Label(ppd_card, text="Points per Decade", style="Card.TLabel").grid(row=0, column=0, sticky="w")
+        self.param_vars["Points per Decade"] = tk.StringVar(value="5")
+        ppd_entry = ttk.Entry(ppd_card, textvariable=self.param_vars["Points per Decade"], width=18)
+        ppd_entry.grid(row=1, column=0, sticky="ew", pady=(5, 0))
+        self._bind_entry_touch_focus(ppd_entry)
 
         controls_frame = ttk.Frame(load_frame, style="Card.TFrame")
         controls_frame.pack(fill="x", pady=(2, 2))
@@ -285,7 +311,9 @@ class EisAnalysisTool:
         self.nyquist_fig = Figure(figsize=(6, 4), dpi=100, facecolor=self.theme["panel"])
         self.nyquist_ax = self.nyquist_fig.add_subplot(111)
         self.nyquist_canvas = FigureCanvasTkAgg(self.nyquist_fig, master=self.nyquist_hidden_frame)
-        self.nyquist_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
+        nyquist_widget = self.nyquist_canvas.get_tk_widget()
+        nyquist_widget.configure(bg=self.theme["panel"], highlightthickness=0, bd=0)
+        nyquist_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
         
         nyquist_export_frame = ttk.Frame(self.nyquist_hidden_frame, style="Card.TFrame")
         nyquist_export_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
@@ -338,7 +366,9 @@ class EisAnalysisTool:
         self.bode_eval_text = None
 
         self.bode_canvas = FigureCanvasTkAgg(self.bode_fig, master=self.bode_tab)
-        self.bode_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
+        bode_widget = self.bode_canvas.get_tk_widget()
+        bode_widget.configure(bg=self.theme["panel"], highlightthickness=0, bd=0)
+        bode_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=(10, 6))
 
         bode_export_frame = ttk.Frame(self.bode_tab, style="Card.TFrame")
         bode_export_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 10))
@@ -385,6 +415,7 @@ class EisAnalysisTool:
         )
         self.output_text.pack(fill="both", expand=True, padx=4, pady=4)
         self._bind_output_log_touch_scroll()
+        self.log_message("No Device Connected")
 
         # --- Initialize Plots & Annotations ---
         self.init_nyquist_plot()
@@ -829,6 +860,18 @@ class EisAnalysisTool:
         """Improve touch input by forcing focus and opening OSK when available."""
         entry_widget.bind("<ButtonRelease-1>", self._on_entry_touched, add="+")
         entry_widget.bind("<FocusIn>", self._on_entry_focused, add="+")
+
+    def _adjust_points_per_decade(self, delta):
+        """Adjust points-per-decade using +/- controls and keep value in a valid range."""
+        var = self.param_vars.get("Points per Decade")
+        if var is None:
+            return
+        try:
+            current = int(float(var.get()))
+        except Exception:
+            current = 5
+        new_value = max(1, min(20, current + int(delta)))
+        var.set(str(new_value))
 
     def _on_entry_touched(self, event):
         try:
