@@ -4,13 +4,14 @@ import threading
 import time
 import os
 import re
-import webbrowser
+import json
 import shutil
 import subprocess
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_pdf import PdfPages
 
 try:
     import pypalmsens as ps
@@ -108,11 +109,11 @@ class EisAnalysisTool:
         ttk.Label(connect_frame, text="Connection", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", padx=(2, 10))
 
         ttk.Label(connect_frame, text="Device", style="Card.TLabel").grid(row=0, column=1, sticky="w", padx=(8, 6))
-        self.device_var = tk.StringVar(value="Sensit USB")
+        self.device_var = tk.StringVar(value="Sensit BT")
         self.device_combo = ttk.Combobox(
             connect_frame,
             textvariable=self.device_var,
-            values=["Sensit USB"],
+            values=["Sensit BT"],
             state="readonly",
             width=18,
         )
@@ -174,6 +175,16 @@ class EisAnalysisTool:
             'z_real': np.array([]),
             'z_imag': np.array([]),
         }
+        self.last_diagnosis_result = "No diagnosis yet"
+        self.last_quality_result = None
+        self.last_quality_summary = "No quality check yet"
+        self.last_low_freq_impedance = np.nan
+        self.last_low_freq_hz = np.nan
+        self.run_history = []
+        self.max_run_history = 200
+        self.profile_store_path = os.path.join(os.path.dirname(__file__), "test_profiles.json")
+        self.test_profiles = {}
+        self.current_profile_name = tk.StringVar(value="Recommended")
         self.test_run_counter = 0
         self.sim_reference_profile = None
         self.shared_progress_frame = None
@@ -217,11 +228,32 @@ class EisAnalysisTool:
         load_frame.pack(fill="x", expand=False)
 
         ttk.Label(load_frame, text="Measurement Configuration", style="SectionTitle.TLabel").pack(anchor="w")
-        ttk.Label(
-            load_frame,
-            text="Use preset test ranges for faster setup and fewer typing errors.",
-            style="Muted.Card.TLabel",
-        ).pack(anchor="w", pady=(2, 8))
+
+        profile_row = ttk.Frame(load_frame, style="Card.TFrame")
+        profile_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(profile_row, text="Test Profile", style="Card.TLabel").pack(side="left", padx=(0, 8))
+        self.profile_combo = ttk.Combobox(
+            profile_row,
+            textvariable=self.current_profile_name,
+            state="readonly",
+            width=26,
+        )
+        self.profile_combo.pack(side="left", padx=(0, 8))
+        self.profile_combo.bind("<<ComboboxSelected>>", self._on_profile_selected)
+        self.save_profile_btn = ttk.Button(
+            profile_row,
+            text="Save Profile",
+            command=self.save_current_profile,
+            style="Secondary.TButton",
+        )
+        self.save_profile_btn.pack(side="left", padx=(0, 6))
+        self.delete_profile_btn = ttk.Button(
+            profile_row,
+            text="Delete",
+            command=self.delete_selected_profile,
+            style="Secondary.TButton",
+        )
+        self.delete_profile_btn.pack(side="left")
 
         self.param_vars = {}
         params_frame = ttk.Frame(load_frame, style="InnerCard.TFrame", padding=(12, 10))
@@ -268,6 +300,10 @@ class EisAnalysisTool:
         ppd_entry = ttk.Entry(ppd_card, textvariable=self.param_vars["Points per Decade"], width=18)
         ppd_entry.grid(row=1, column=0, sticky="ew", pady=(5, 0))
         self._bind_entry_touch_focus(ppd_entry)
+
+        self._load_test_profiles()
+        self._refresh_profile_choices()
+        self._apply_profile_to_inputs(self.current_profile_name.get(), log_change=False)
 
         controls_frame = ttk.Frame(load_frame, style="Card.TFrame")
         controls_frame.pack(fill="x", pady=(2, 2))
@@ -329,9 +365,9 @@ class EisAnalysisTool:
 
         self.export_nyquist_cloud_btn = ttk.Button(
             nyquist_export_frame,
-            text="☁ Upload",
+            text="Save Report (PDF)",
             style="Secondary.TButton",
-            command=lambda: self.export_plot_to_cloud('nyquist'),
+            command=lambda: self.export_report('nyquist'),
             state="disabled",
         )
         self.export_nyquist_cloud_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
@@ -384,14 +420,51 @@ class EisAnalysisTool:
 
         self.export_bode_cloud_btn = ttk.Button(
             bode_export_frame,
-            text="☁ Upload",
+            text="Save Report (PDF)",
             style="Secondary.TButton",
-            command=lambda: self.export_plot_to_cloud('bode'),
+            command=lambda: self.export_report('bode'),
             state="disabled",
         )
         self.export_bode_cloud_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
 
-        # --- Tab 4: Output Log ---
+        # --- Tab 4: Run History ---
+        self.history_tab = ttk.Frame(self.notebook, style="Card.TFrame")
+        self.notebook.add(self.history_tab, text='Run History')
+
+        self.history_fig = Figure(figsize=(6, 2.4), dpi=100, facecolor=self.theme["panel"])
+        self.history_ax = self.history_fig.add_subplot(111)
+        self.history_canvas = FigureCanvasTkAgg(self.history_fig, master=self.history_tab)
+        history_widget = self.history_canvas.get_tk_widget()
+        history_widget.configure(bg=self.theme["panel"], highlightthickness=0, bd=0)
+        history_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=False, padx=10, pady=(10, 6))
+
+        history_table_frame = ttk.Frame(self.history_tab, style="Card.TFrame", padding=(10, 6))
+        history_table_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        history_table_frame.columnconfigure(0, weight=1)
+        history_table_frame.rowconfigure(0, weight=1)
+        self.history_tree = ttk.Treeview(
+            history_table_frame,
+            columns=("time", "mode", "profile", "diagnosis", "lowz"),
+            show="headings",
+            height=8,
+        )
+        self.history_tree.heading("time", text="Time")
+        self.history_tree.heading("mode", text="Mode")
+        self.history_tree.heading("profile", text="Profile")
+        self.history_tree.heading("diagnosis", text="Diagnosis")
+        self.history_tree.heading("lowz", text="Low-Freq |Z| (Ohm)")
+        self.history_tree.column("time", width=135, anchor="w")
+        self.history_tree.column("mode", width=100, anchor="w")
+        self.history_tree.column("profile", width=120, anchor="w")
+        self.history_tree.column("diagnosis", width=260, anchor="w")
+        self.history_tree.column("lowz", width=140, anchor="e")
+        self.history_tree.grid(row=0, column=0, sticky="nsew")
+        history_scroll = ttk.Scrollbar(history_table_frame, orient="vertical", command=self.history_tree.yview)
+        history_scroll.grid(row=0, column=1, sticky="ns")
+        self.history_tree.configure(yscrollcommand=history_scroll.set)
+        self.init_history_plot()
+
+        # --- Tab 5: Output Log ---
         self.log_tab = ttk.Frame(self.notebook, style="Card.TFrame", padding=(10, 10))
         self.notebook.add(self.log_tab, text='Output Log')
         # Progress bar shown while a test is running
@@ -731,7 +804,7 @@ class EisAnalysisTool:
 
             serial = self.ps_manager.get_instrument_serial()
             self.connection_mode = "sensit_usb"
-            mode_label = "Sensit USB"
+            mode_label = "Sensit BT"
             self.log_message(f"Connected to {self.ps_instrument.name} (Serial: {serial})")
             self.root.after(0, self._set_connected_ui, mode_label)
         except Exception as e:
@@ -860,6 +933,233 @@ class EisAnalysisTool:
         """Improve touch input by forcing focus and opening OSK when available."""
         entry_widget.bind("<ButtonRelease-1>", self._on_entry_touched, add="+")
         entry_widget.bind("<FocusIn>", self._on_entry_focused, add="+")
+
+    def _default_profile_values(self):
+        return {
+            "Start Frequency (Hz)": "1e5",
+            "End Frequency (Hz)": "1e-1",
+            "Voltage Amplitude (mV)": "50",
+            "Points per Decade": "5",
+        }
+
+    def _builtin_profiles(self):
+        recommended = self._default_profile_values()
+        rapid = dict(recommended)
+        rapid["Points per Decade"] = "3"
+        detailed = dict(recommended)
+        detailed["Points per Decade"] = "10"
+        detailed["End Frequency (Hz)"] = "1e-2"
+        return {
+            "Recommended": recommended,
+            "Rapid": rapid,
+            "Detailed": detailed,
+        }
+
+    def _capture_current_profile_values(self):
+        defaults = self._default_profile_values()
+        values = {}
+        for key, default_value in defaults.items():
+            var = self.param_vars.get(key)
+            values[key] = (str(var.get()).strip() if var is not None else default_value) or default_value
+        return values
+
+    def _load_test_profiles(self):
+        defaults = self._builtin_profiles()
+        profiles = {}
+
+        if os.path.exists(self.profile_store_path):
+            try:
+                with open(self.profile_store_path, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                if isinstance(raw, dict):
+                    for name, profile in raw.items():
+                        if not isinstance(name, str) or not isinstance(profile, dict):
+                            continue
+                        cleaned = {}
+                        for key, default_value in defaults["Recommended"].items():
+                            cleaned[key] = str(profile.get(key, default_value))
+                        profiles[name.strip()] = cleaned
+            except Exception as e:
+                self.log_message(f"Could not load test profiles, using defaults: {e}")
+
+        for name, values in defaults.items():
+            if name not in profiles:
+                profiles[name] = dict(values)
+        self.test_profiles = profiles
+
+    def _save_test_profiles(self):
+        try:
+            with open(self.profile_store_path, "w", encoding="utf-8") as f:
+                json.dump(self.test_profiles, f, indent=2)
+        except Exception as e:
+            self.log_message(f"Could not save test profiles: {e}")
+
+    def _refresh_profile_choices(self):
+        priority = ["Recommended", "Rapid", "Detailed"]
+        remaining = sorted([name for name in self.test_profiles.keys() if name not in priority])
+        ordered = [name for name in priority if name in self.test_profiles] + remaining
+        self.profile_combo["values"] = ordered
+        current = self.current_profile_name.get().strip()
+        if current not in self.test_profiles:
+            current = "Recommended"
+        self.current_profile_name.set(current)
+
+    def _apply_profile_to_inputs(self, profile_name, log_change=True):
+        profile = self.test_profiles.get(profile_name)
+        if not profile:
+            return
+        for key, value in profile.items():
+            var = self.param_vars.get(key)
+            if var is not None:
+                var.set(str(value))
+        if log_change:
+            self.log_message(f"Applied test profile: {profile_name}")
+
+    def _on_profile_selected(self, _event=None):
+        self._apply_profile_to_inputs(self.current_profile_name.get().strip())
+
+    def save_current_profile(self):
+        current_name = self.current_profile_name.get().strip()
+        initial_name = "" if current_name == "Recommended" else current_name
+        profile_name = simpledialog.askstring(
+            "Save Test Profile",
+            "Enter profile name:",
+            parent=self.root,
+            initialvalue=initial_name,
+        )
+        if not profile_name:
+            return
+
+        profile_name = profile_name.strip()
+        if not profile_name:
+            messagebox.showwarning("Invalid Name", "Profile name cannot be empty.")
+            return
+
+        self.test_profiles[profile_name] = self._capture_current_profile_values()
+        self.current_profile_name.set(profile_name)
+        self._refresh_profile_choices()
+        self._save_test_profiles()
+        self.log_message(f"Saved test profile: {profile_name}")
+
+    def delete_selected_profile(self):
+        profile_name = self.current_profile_name.get().strip()
+        if profile_name == "Recommended":
+            messagebox.showinfo("Protected Profile", "Recommended profile cannot be deleted.")
+            return
+        if profile_name not in self.test_profiles:
+            return
+
+        if not messagebox.askyesno("Delete Profile", f"Delete profile '{profile_name}'?"):
+            return
+
+        self.test_profiles.pop(profile_name, None)
+        self.current_profile_name.set("Recommended")
+        self._refresh_profile_choices()
+        self._apply_profile_to_inputs("Recommended")
+        self._save_test_profiles()
+        self.log_message(f"Deleted test profile: {profile_name}")
+
+    def init_history_plot(self):
+        self.history_ax.clear()
+        self.history_ax.set_facecolor(self.theme["panel"])
+        self.history_ax.grid(True, which='both', color=self.theme["line"], linewidth=0.8, alpha=0.75)
+        self.history_ax.set_title("Low-Frequency Impedance Trend")
+        self.history_ax.set_xlabel("Run Number")
+        self.history_ax.set_ylabel("Low-Freq |Z| (Ohm)")
+        self.history_ax.tick_params(colors=self.theme["muted"])
+        self.history_ax.xaxis.label.set_color(self.theme["text"])
+        self.history_ax.yaxis.label.set_color(self.theme["text"])
+        self.history_ax.title.set_color(self.theme["text"])
+        for spine in self.history_ax.spines.values():
+            spine.set_color(self.theme["line"])
+        self.history_ax.set_yscale('log')
+        self.history_canvas.draw_idle()
+
+    def record_run_history(self, mode_label, freq_data, z_mag_data):
+        try:
+            freq = np.asarray(freq_data, dtype=float)
+            z_mag = np.asarray(z_mag_data, dtype=float)
+            valid = np.isfinite(freq) & np.isfinite(z_mag) & (freq > 0) & (z_mag > 0)
+            freq = freq[valid]
+            z_mag = z_mag[valid]
+            if freq.size == 0:
+                return
+
+            low_idx = int(np.argmin(freq))
+            low_freq = float(freq[low_idx])
+            low_z = float(z_mag[low_idx])
+            entry = {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "mode": mode_label,
+                "profile": self.current_profile_name.get().strip() or "Recommended",
+                "diagnosis": self.last_diagnosis_result,
+                "quality": self.last_quality_summary,
+                "low_freq_hz": low_freq,
+                "low_freq_z": low_z,
+                "points": int(freq.size),
+            }
+            self._append_run_history_entry(entry)
+        except Exception as e:
+            self.log_message(f"Could not record run history: {e}")
+
+    def _append_run_history_entry(self, entry):
+        self.run_history.append(entry)
+        if len(self.run_history) > self.max_run_history:
+            self.run_history = self.run_history[-self.max_run_history:]
+
+        self.last_low_freq_hz = entry.get("low_freq_hz", np.nan)
+        self.last_low_freq_impedance = entry.get("low_freq_z", np.nan)
+        self.refresh_run_history_views()
+
+    def refresh_run_history_views(self):
+        try:
+            for item in self.history_tree.get_children():
+                self.history_tree.delete(item)
+
+            for entry in reversed(self.run_history[-30:]):
+                low_z = entry.get("low_freq_z", np.nan)
+                low_z_text = f"{low_z:.3e}" if np.isfinite(low_z) else "N/A"
+                self.history_tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        entry.get("timestamp", ""),
+                        entry.get("mode", ""),
+                        entry.get("profile", ""),
+                        entry.get("diagnosis", ""),
+                        low_z_text,
+                    ),
+                )
+        except Exception:
+            pass
+
+        try:
+            self.history_ax.clear()
+            self.history_ax.set_facecolor(self.theme["panel"])
+            self.history_ax.grid(True, which='both', color=self.theme["line"], linewidth=0.8, alpha=0.75)
+            self.history_ax.set_title("Low-Frequency Impedance Trend")
+            self.history_ax.set_xlabel("Run Number")
+            self.history_ax.set_ylabel("Low-Freq |Z| (Ohm)")
+            self.history_ax.tick_params(colors=self.theme["muted"])
+            self.history_ax.xaxis.label.set_color(self.theme["text"])
+            self.history_ax.yaxis.label.set_color(self.theme["text"])
+            self.history_ax.title.set_color(self.theme["text"])
+            for spine in self.history_ax.spines.values():
+                spine.set_color(self.theme["line"])
+            self.history_ax.set_yscale('log')
+
+            valid_entries = [
+                e for e in self.run_history
+                if np.isfinite(e.get("low_freq_z", np.nan)) and e.get("low_freq_z", 0) > 0
+            ]
+            if valid_entries:
+                y = np.array([e["low_freq_z"] for e in valid_entries], dtype=float)
+                x = np.arange(1, len(y) + 1)
+                self.history_ax.plot(x, y, 'o-', color=self.theme["accent"], markersize=4)
+                self.history_ax.set_xlim(1, max(2, len(x)))
+            self.history_canvas.draw_idle()
+        except Exception:
+            pass
 
     def _adjust_points_per_decade(self, delta):
         """Adjust points-per-decade using +/- controls and keep value in a valid range."""
@@ -1102,6 +1402,9 @@ class EisAnalysisTool:
         if not msg:
             return
 
+        if not hasattr(self, "output_text"):
+            return
+
         def _log():
             self.output_text.configure(state="normal")
             self.output_text.insert(tk.END, f"{time.strftime('%H:%M:%S')} - {msg}\n")
@@ -1300,6 +1603,7 @@ class EisAnalysisTool:
             diagnosis_result = self.diagnose_coating(z_mag, data['frequency'])
             self.log_message(f"Diagnosis: {diagnosis_result}")
             self.report_bode_data_quality(data['frequency'], z_mag)
+            self.root.after(0, self.record_run_history, self._current_mode_label(), data['frequency'], z_mag)
 
             # --- Draw full Plots (on main thread) ---
             self.root.after(0, self.draw_plots, data)
@@ -1316,20 +1620,38 @@ class EisAnalysisTool:
     def diagnose_coating(self, z_mag_data, freq_data):
         """Analyzes impedance data to provide a coating diagnosis."""
         try:
-            # Data from CSV is high-to-low freq, so lowest freq is at the end.
-            low_freq_z_mag = z_mag_data[-1]
+            freq = np.asarray(freq_data, dtype=float)
+            z_mag = np.asarray(z_mag_data, dtype=float)
+            valid = np.isfinite(freq) & np.isfinite(z_mag) & (freq > 0)
+            if not np.any(valid):
+                self.last_diagnosis_result = "Could not determine diagnosis."
+                self.last_low_freq_impedance = np.nan
+                self.last_low_freq_hz = np.nan
+                return self.last_diagnosis_result
+
+            valid_freq = freq[valid]
+            valid_z_mag = z_mag[valid]
+            low_idx = int(np.argmin(valid_freq))
+            low_freq_z_mag = float(valid_z_mag[low_idx])
+            self.last_low_freq_impedance = low_freq_z_mag
+            self.last_low_freq_hz = float(valid_freq[low_idx])
             
             self.log_message(f"Diagnosis based on low freq impedance: {low_freq_z_mag:.2e} Ohm")
 
             if low_freq_z_mag >= 1e7:
-                return "Healthy Coating (Pass)"
+                diagnosis = "Healthy Coating (Pass)"
             elif low_freq_z_mag >= 1e5:
-                return "Coating needs monitoring (Caution)"
+                diagnosis = "Coating needs monitoring (Caution)"
             else:
-                return "Defective Coating, needs maintenance (Fail)"
+                diagnosis = "Defective Coating, needs maintenance (Fail)"
+            self.last_diagnosis_result = diagnosis
+            return diagnosis
         except Exception as e:
             self.log_message(f"Diagnosis error: {e}")
-            return "Could not determine diagnosis."
+            self.last_diagnosis_result = "Could not determine diagnosis."
+            self.last_low_freq_impedance = np.nan
+            self.last_low_freq_hz = np.nan
+            return self.last_diagnosis_result
 
     def _get_simulated_reference_profile(self):
         """Load and cache reference Bode profile from built-in simulated CSV."""
@@ -1466,6 +1788,8 @@ class EisAnalysisTool:
     def report_bode_data_quality(self, freq_data, z_mag_data):
         """Run quality check and publish warning/details to output log and status label."""
         quality = self.assess_bode_data_quality(freq_data, z_mag_data)
+        self.last_quality_result = quality
+        self.last_quality_summary = quality.get("summary", "Quality check unavailable")
         if quality["ok"]:
             self.log_message("Data quality check: OK.")
         else:
@@ -1473,12 +1797,13 @@ class EisAnalysisTool:
 
         if quality["ok"]:
             self.root.after(0, self.show_data_quality_on_plots, None)
-            return
+            return quality
 
         self.root.after(0, self._set_measurement_status, "Warning: data may be messy - check setup")
         warning_text = "Faulty data detected: check wiring, connections, and setup"
         self.root.after(0, self.show_data_quality_on_plots, warning_text)
         self.root.after(0, self._show_quality_warning_popup, quality)
+        return quality
 
     def _show_quality_warning_popup(self, quality):
         """Show a popup dialog for faulty data quality results."""
@@ -1769,18 +2094,21 @@ class EisAnalysisTool:
     def log_test_separator(self):
         """Write a clear separator in the output log at the start of each run."""
         self.test_run_counter += 1
-        mode_label = {
-            "sensit_bt": "Sensit BT",
-            "sensit_usb": "Sensit USB",
-            "simulated": "Simulated Mode",
-            "messy": "Messy Data",
-            "calibration": "Calibration",
-        }.get(self.connection_mode, "Unknown Mode")
+        mode_label = self._current_mode_label()
 
         separator = "=" * 66
         self.log_message(separator)
         self.log_message(f"TEST RUN {self.test_run_counter} STARTED • Mode: {mode_label}")
         self.log_message(separator)
+
+    def _current_mode_label(self):
+        return {
+            "sensit_bt": "Sensit BT",
+            "sensit_usb": "Sensit BT",
+            "simulated": "Simulated Mode",
+            "messy": "Messy Data",
+            "calibration": "Calibration",
+        }.get(self.connection_mode, "Unknown Mode")
 
     def log_calibration_stage_separator(self, test_index):
         """Write a clear separator for each calibration stage in the output log."""
@@ -2490,6 +2818,7 @@ class EisAnalysisTool:
                     diagnosis_result = self.diagnose_coating(z_mag, np.array(freq_buf))
                     self.log_message(f"Diagnosis: {diagnosis_result}")
                     self.report_bode_data_quality(np.array(freq_buf), z_mag)
+                    self.root.after(0, self.record_run_history, self._current_mode_label(), np.array(freq_buf), z_mag)
                     self.root.after(0, self.show_bode_threshold_indicator, np.array(freq_buf), z_mag)
                     self.root.after(0, self.show_diagnosis_on_plots, diagnosis_result)
 
@@ -2584,6 +2913,7 @@ class EisAnalysisTool:
                     diagnosis_result = self.diagnose_coating(current_z_mag, current_freq)
                     self.log_message(f"Diagnosis: {diagnosis_result}")
                     self.report_bode_data_quality(current_freq, current_z_mag)
+                    self.root.after(0, self.record_run_history, self._current_mode_label(), current_freq, current_z_mag)
                     self.root.after(0, self.show_bode_threshold_indicator, current_freq, current_z_mag)
                     # Show diagnosis visually on plots
                     self.root.after(0, self.show_diagnosis_on_plots, diagnosis_result)
@@ -2719,6 +3049,7 @@ class EisAnalysisTool:
                     diagnosis_result = self.diagnose_coating(current_z_mag, current_freq)
                     self.log_message(f"Diagnosis: {diagnosis_result}")
                     self.report_bode_data_quality(current_freq, current_z_mag)
+                    self.root.after(0, self.record_run_history, self._current_mode_label(), current_freq, current_z_mag)
                     self.root.after(0, self.show_bode_threshold_indicator, current_freq, current_z_mag)
                     self.root.after(0, self.show_diagnosis_on_plots, diagnosis_result)
                 except Exception as e:
@@ -2916,47 +3247,11 @@ class EisAnalysisTool:
             messagebox.showerror("Export Error", f"Failed to export CSV:\n{e}")
             return None
 
-    def _open_cloud_target(self, cloud_target):
-        """Open selected cloud provider target for upload."""
-        target = cloud_target.strip().lower()
-
-        if target in ('1', 'onedrive', 'one drive'):
-            onedrive_path = os.environ.get('OneDrive')
-            if onedrive_path and os.path.isdir(onedrive_path):
-                os.startfile(onedrive_path)
-                return "OneDrive"
-            webbrowser.open("https://onedrive.live.com")
-            return "OneDrive"
-
-        if target in ('2', 'google drive', 'gdrive', 'drive'):
-            webbrowser.open("https://drive.google.com/drive/my-drive")
-            return "Google Drive"
-
-        if target in ('3', 'dropbox'):
-            webbrowser.open("https://www.dropbox.com/home")
-            return "Dropbox"
-
-        return None
-
     def _generate_export_filename(self, base_name):
-        """Generate timestamped filename to avoid collisions for cloud upload flow."""
+        """Generate timestamped filename to avoid collisions."""
         stem, ext = os.path.splitext(base_name)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         return f"{stem}_{timestamp}{ext}"
-
-    def _cloud_export_path_for_choice(self, cloud_choice, default_name):
-        """Resolve automatic save path for cloud upload without a local save dialog."""
-        choice = cloud_choice.strip().lower()
-        filename = self._generate_export_filename(default_name)
-
-        if choice in ('1', 'onedrive', 'one drive'):
-            onedrive_path = os.environ.get('OneDrive')
-            if onedrive_path and os.path.isdir(onedrive_path):
-                return os.path.join(onedrive_path, filename)
-
-        queue_dir = os.path.join(os.path.dirname(__file__), "cloud_upload_queue")
-        os.makedirs(queue_dir, exist_ok=True)
-        return os.path.join(queue_dir, filename)
 
     def export_plot(self, plot_type):
         """Opens a 'Save As' dialog to export Nyquist/Bode plotted data as CSV."""
@@ -2969,45 +3264,140 @@ class EisAnalysisTool:
 
         self._save_export_dataframe(export_df, default_name, dialog_title)
 
-    def export_plot_to_cloud(self, plot_type):
-        """Export CSV then open selected cloud target for upload."""
-        export_df, default_name, dialog_title = self._build_export_dataframe(plot_type)
-        if export_df is None:
-            self.log_message("No plot data available to export.")
-            messagebox.showwarning("No Data", "No plot data available to export.")
+    def _build_report_context(self):
+        freq = np.asarray(self.latest_plot_data.get('frequency', np.array([])), dtype=float)
+        z_real = np.asarray(self.latest_plot_data.get('z_real', np.array([])), dtype=float)
+        z_imag = np.asarray(self.latest_plot_data.get('z_imag', np.array([])), dtype=float)
+        if freq.size == 0 or z_real.size == 0 or z_imag.size == 0:
+            return None
+
+        z_mag = np.sqrt(z_real ** 2 + z_imag ** 2)
+        valid = np.isfinite(freq) & np.isfinite(z_real) & np.isfinite(z_imag) & np.isfinite(z_mag) & (freq > 0) & (z_mag > 0)
+        freq = freq[valid]
+        z_real = z_real[valid]
+        z_imag = z_imag[valid]
+        z_mag = z_mag[valid]
+        if freq.size == 0:
+            return None
+
+        low_idx = int(np.argmin(freq))
+        return {
+            "freq": freq,
+            "z_real": z_real,
+            "z_imag": z_imag,
+            "z_mag": z_mag,
+            "low_freq_hz": float(freq[low_idx]),
+            "low_freq_z": float(z_mag[low_idx]),
+            "points": int(freq.size),
+            "mode": self._current_mode_label(),
+            "profile": self.current_profile_name.get().strip() or "Recommended",
+            "diagnosis": self.last_diagnosis_result,
+            "quality": self.last_quality_summary,
+            "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    def export_report(self, _plot_type='bode'):
+        """Export a PDF report with summary, Bode/Nyquist plots, and trend history."""
+        context = self._build_report_context()
+        if context is None:
+            self.log_message("No plot data available for report export.")
+            messagebox.showwarning("No Data", "No plot data available to build a report.")
             return
 
-        prompt = (
-            "Choose cloud destination:\n"
-            "1 = OneDrive\n"
-            "2 = Google Drive\n"
-            "3 = Dropbox"
+        default_name = self._generate_export_filename("eis_report.pdf")
+        filepath = filedialog.asksaveasfilename(
+            title="Save EIS Report As...",
+            initialfile=default_name,
+            defaultextension=".pdf",
+            filetypes=[('PDF File', '*.pdf'), ('All Files', '*.*')],
         )
-        cloud_choice = simpledialog.askstring("Cloud Save", prompt, parent=self.root)
-        if not cloud_choice:
-            self.log_message("Cloud target selection cancelled.")
+        if not filepath:
+            self.log_message("Report export cancelled.")
             return
 
-        filepath = self._cloud_export_path_for_choice(cloud_choice, default_name)
         try:
-            export_df.to_csv(filepath, index=False)
-            self.log_message(f"Cloud upload file prepared: {filepath}")
+            with PdfPages(filepath) as pdf:
+                # Page 1: summary
+                summary_fig = Figure(figsize=(8.27, 11.69), dpi=120, facecolor='white')
+                summary_ax = summary_fig.add_subplot(111)
+                summary_ax.axis('off')
+                summary_ax.text(0.05, 0.97, "EIS Measurement Report", fontsize=20, fontweight='bold', va='top')
+
+                info_lines = [
+                    f"Generated: {context['generated_at']}",
+                    f"Mode: {context['mode']}",
+                    f"Profile: {context['profile']}",
+                    f"Diagnosis: {context['diagnosis']}",
+                    f"Data Quality: {context['quality']}",
+                    f"Points: {context['points']}",
+                    f"Low Frequency: {context['low_freq_hz']:.3e} Hz",
+                    f"Low-Frequency |Z|: {context['low_freq_z']:.3e} Ohm",
+                ]
+                summary_ax.text(0.05, 0.89, "\n".join(info_lines), fontsize=12, va='top')
+
+                if self.run_history:
+                    summary_ax.text(0.05, 0.47, "Recent Runs", fontsize=14, fontweight='bold', va='top')
+                    recent = self.run_history[-8:]
+                    y = 0.44
+                    for entry in reversed(recent):
+                        low_z = entry.get("low_freq_z", np.nan)
+                        low_z_text = f"{low_z:.2e}" if np.isfinite(low_z) else "N/A"
+                        line = (
+                            f"{entry.get('timestamp', '')} | {entry.get('mode', '')} | "
+                            f"{entry.get('profile', '')} | {entry.get('diagnosis', '')} | {low_z_text}"
+                        )
+                        summary_ax.text(0.05, y, line, fontsize=9, va='top')
+                        y -= 0.033
+                        if y < 0.10:
+                            break
+
+                pdf.savefig(summary_fig, bbox_inches='tight')
+
+                # Page 2: Bode chart
+                bode_fig = Figure(figsize=(11, 6), dpi=120, facecolor='white')
+                bode_ax = bode_fig.add_subplot(111)
+                bode_ax.loglog(context['freq'], context['z_mag'], 'o-', markersize=4, color='#1f77b4')
+                bode_ax.set_title('Bode Plot (|Z| vs Frequency)')
+                bode_ax.set_xlabel('Frequency (Hz)')
+                bode_ax.set_ylabel('|Z| (Ohm)')
+                bode_ax.grid(True, which='both', alpha=0.35)
+                pdf.savefig(bode_fig, bbox_inches='tight')
+
+                # Page 3: Nyquist chart
+                nyquist_fig = Figure(figsize=(11, 6), dpi=120, facecolor='white')
+                nyquist_ax = nyquist_fig.add_subplot(111)
+                nyquist_ax.plot(context['z_real'], -context['z_imag'], 'o-', markersize=4, color='#1f77b4')
+                nyquist_ax.set_title("Nyquist Plot")
+                nyquist_ax.set_xlabel("Z' (Ohm)")
+                nyquist_ax.set_ylabel("-Z'' (Ohm)")
+                nyquist_ax.grid(True, alpha=0.35)
+                nyquist_ax.axis('equal')
+                pdf.savefig(nyquist_fig, bbox_inches='tight')
+
+                # Page 4: trend chart when history exists
+                if len(self.run_history) >= 2:
+                    trend_fig = Figure(figsize=(11, 4.8), dpi=120, facecolor='white')
+                    trend_ax = trend_fig.add_subplot(111)
+                    valid_entries = [
+                        e for e in self.run_history
+                        if np.isfinite(e.get("low_freq_z", np.nan)) and e.get("low_freq_z", 0) > 0
+                    ]
+                    if valid_entries:
+                        y = np.array([e["low_freq_z"] for e in valid_entries], dtype=float)
+                        x = np.arange(1, len(y) + 1)
+                        trend_ax.plot(x, y, 'o-', color='#1f77b4')
+                        trend_ax.set_yscale('log')
+                        trend_ax.set_title('Run History Trend (Low-Frequency |Z|)')
+                        trend_ax.set_xlabel('Run Number')
+                        trend_ax.set_ylabel('Low-Freq |Z| (Ohm)')
+                        trend_ax.grid(True, which='both', alpha=0.35)
+                    pdf.savefig(trend_fig, bbox_inches='tight')
+
+            self.log_message(f"Report exported to: {filepath}")
+            messagebox.showinfo("Report Export", f"Report saved to:\n{filepath}")
         except Exception as e:
-            self.log_message(f"Error preparing cloud upload file: {e}")
-            messagebox.showerror("Cloud Save Error", f"Failed to prepare CSV for upload:\n{e}")
-            return
-
-        cloud_name = self._open_cloud_target(cloud_choice)
-        if cloud_name is None:
-            messagebox.showwarning("Cloud Save", "Unknown cloud option. Use 1, 2, or 3.")
-            self.log_message("Cloud save cancelled: unknown cloud option.")
-            return
-
-        messagebox.showinfo(
-            "Cloud Save",
-            f"CSV saved to:\n{filepath}\n\n{cloud_name} has been opened. Upload this file there.",
-        )
-        self.log_message(f"Cloud export ready: {cloud_name} opened for upload.")
+            self.log_message(f"Error exporting report: {e}")
+            messagebox.showerror("Report Export Error", f"Failed to export report:\n{e}")
 
 # --- Main execution ---
 if __name__ == "__main__":

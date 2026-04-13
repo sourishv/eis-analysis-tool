@@ -19,10 +19,13 @@ This application is built with tkinter, ttk, matplotlib, and numpy.
 - Load EIS data from CSV and plot:
   - Nyquist: Z_real vs -Z_imaginary
   - Bode (magnitude): |Z| vs Frequency (log-log)
+- Saved test profiles for measurement parameters (default profile: `Recommended`).
+- Run history tab with low-frequency impedance trend chart and recent-run table.
 - Permanent color bar beside the Bode magnitude axis indicating coating health
   bands (red / yellow / green).
 - Simple automated diagnosis based on the low-frequency |Z| value.
 - Export plotted Nyquist/Bode data as CSV from the GUI.
+- Export a multi-page PDF report with summary, plots, and run trend history.
 
 ## Required CSV format
 
@@ -109,7 +112,9 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
 
 ## Exporting plots
 
-- Use the export buttons on each plot tab; each export saves a CSV file.
+- Use the export buttons on each plot tab:
+  - `Save to Device` saves CSV data.
+  - `Save Report (PDF)` exports a PDF report.
 - Nyquist CSV includes `Z_real (Ohm)` and `-Z_imaginary (Ohm)` (plus frequency when available).
 - Bode CSV includes `Frequency (Hz)` and `|Z| (Ohm)`.
 
