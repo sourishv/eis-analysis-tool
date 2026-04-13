@@ -108,11 +108,11 @@ class EisAnalysisTool:
         ttk.Label(connect_frame, text="Connection", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", padx=(2, 10))
 
         ttk.Label(connect_frame, text="Device", style="Card.TLabel").grid(row=0, column=1, sticky="w", padx=(8, 6))
-        self.device_var = tk.StringVar(value="Sensit BT")
+        self.device_var = tk.StringVar(value="Sensit USB")
         self.device_combo = ttk.Combobox(
             connect_frame,
             textvariable=self.device_var,
-            values=["Sensit BT"],
+            values=["Sensit USB"],
             state="readonly",
             width=18,
         )
@@ -320,8 +320,10 @@ class EisAnalysisTool:
         
         self.bode_fig = Figure(figsize=(6, 4), dpi=100, facecolor=self.theme["panel"])
         
-        self.bode_ax_mag = self.bode_fig.add_axes([0.20, 0.20, 0.74, 0.70], zorder=1)
-        self.bode_cbar_ax = self.bode_fig.add_axes([0.212, 0.20, 0.022, 0.70], zorder=2)
+        # Leave room for the log tick labels and keep the threshold bar
+        # flush against the plot's left edge.
+        self.bode_ax_mag = self.bode_fig.add_axes([0.206, 0.22, 0.72, 0.68], zorder=1)
+        self.bode_cbar_ax = self.bode_fig.add_axes([0.206, 0.22, 0.028, 0.68], zorder=2)
         
         self.bode_ax_mag.patch.set_alpha(0) 
         self.bode_ax_mag.plot_data = ([], []) 
@@ -531,11 +533,12 @@ class EisAnalysisTool:
         selected_device = self.device_var.get().strip()
         self.connection_in_progress = True
         self.cancel_connect_requested = False
+        self.log_message(f"Connect requested for {selected_device}.")
         if selected_device != "Sensit BT":
             self.connect_btn.config(state="disabled")
         self.run_test_btn.config(state="disabled")
         self._refresh_top_action_buttons()
-        self.status_label.config(text="Status: Connecting (USB/Bluetooth)...", foreground=self.theme["warning"])
+        self.status_label.config(text="Status: Connecting (USB)...", foreground=self.theme["warning"])
         threading.Thread(target=self.connect_device, daemon=True).start()
 
     def request_cancel_connect(self):
@@ -613,7 +616,7 @@ class EisAnalysisTool:
             self.root.after(0, self._set_disconnected_ui)
 
     def connect_device(self):
-        """Discover and connect to a PalmSens instrument over USB or Bluetooth."""
+        """Discover and connect to a PalmSens instrument over USB."""
         if ps is None:
             self.log_message("ERROR: PyPalmSens is not installed. Install with: pip install pypalmsens")
             self.connection_mode = None
@@ -630,65 +633,30 @@ class EisAnalysisTool:
             self.ps_manager = None
             self.ps_instrument = None
 
-            # Discover in two passes: USB-first, then USB+Bluetooth fallback.
-            self.log_message("Scanning for PalmSens instruments (USB first)...")
-            discovery_profiles = [
-                (
-                    "USB",
-                    dict(
+            self.log_message("Scanning for PalmSens instruments over USB...")
+            try:
+                instruments = list(
+                    ps.discover(
                         ftdi=True,
                         usbcdc=True,
                         winusb=True,
-                        bluetooth=False,
                         serial=True,
                         ignore_errors=True,
-                    ),
-                ),
-                (
-                    "USB/Bluetooth",
-                    dict(
-                        ftdi=True,
-                        usbcdc=True,
-                        winusb=True,
-                        bluetooth=True,
-                        serial=True,
-                        ignore_errors=True,
-                    ),
-                ),
-            ]
+                    )
+                )
+            except Exception as discover_error:
+                self.log_message(f"Device scan failed: {self._connection_error_reason(discover_error)}")
+                self.root.after(0, self._set_disconnected_ui)
+                return
 
-            instruments = []
-            seen_ids = set()
-            for profile_name, profile_args in discovery_profiles:
-                if self.cancel_connect_requested:
-                    self.root.after(0, self._finish_connection_cancelled)
-                    return
-                try:
-                    discovered = ps.discover(**profile_args)
-                except Exception as discover_error:
-                    self.log_message(f"Discovery ({profile_name}) failed: {discover_error}")
-                    continue
-
-                self.log_message(f"Discovery ({profile_name}) found {len(discovered)} device(s).")
-                for inst in discovered:
-                    inst_key = self._instrument_unique_key(inst)
-                    if inst_key in seen_ids:
-                        continue
-                    seen_ids.add(inst_key)
-                    instruments.append(inst)
-
-                # If USB pass already discovered a wired device, skip additional discovery passes.
-                if profile_name == "USB":
-                    usb_candidates = [inst for inst in instruments if not self._is_bluetooth_instrument(inst)]
-                    if usb_candidates:
-                        break
+            self.log_message(f"Discovery found {len(instruments)} device(s).")
 
             if self.cancel_connect_requested:
                 self.root.after(0, self._finish_connection_cancelled)
                 return
 
             if not instruments:
-                self.log_message("No PalmSens instruments found on USB/Bluetooth.")
+                self.log_message("No PalmSens instruments found on USB.")
                 self.log_message("Check cable/power and verify the Pi can see USB serial devices (e.g., /dev/ttyACM* or /dev/ttyUSB*).")
                 self.root.after(0, self._set_disconnected_ui)
                 return
@@ -697,30 +665,8 @@ class EisAnalysisTool:
             for idx, inst in enumerate(instruments, start=1):
                 self.log_message(f"  {idx}. {self._describe_instrument(inst)}")
 
-            # Fixed MAC targeting for Bluetooth instruments.
-            # USB devices usually do not expose MAC-style identifiers.
-            selected = None
-            if self.target_mac:
-                for inst in instruments:
-                    if self._instrument_matches_mac(inst, self.target_mac):
-                        selected = inst
-                        break
-                if selected is None:
-                    usb_candidates = [inst for inst in instruments if not self._is_bluetooth_instrument(inst)]
-                    if usb_candidates:
-                        selected = usb_candidates[0]
-                        self.log_message(
-                            f"Configured MAC {self.target_mac} not found; falling back to USB device: {self._describe_instrument(selected)}"
-                        )
-                    else:
-                        self.log_message(f"Configured MAC {self.target_mac} not found in discovered Bluetooth devices.")
-                        self.root.after(0, self._set_disconnected_ui)
-                        return
-                else:
-                    self.log_message(f"Using configured MAC match: {self._describe_instrument(selected)}")
-            else:
-                usb_candidates = [inst for inst in instruments if not self._is_bluetooth_instrument(inst)]
-                selected = usb_candidates[0] if usb_candidates else instruments[0]
+            selected = instruments[0]
+            self.log_message(f"Using USB device: {self._describe_instrument(selected)}")
 
             if self.cancel_connect_requested:
                 self.root.after(0, self._finish_connection_cancelled)
@@ -740,7 +686,7 @@ class EisAnalysisTool:
                     break
                 except Exception as e:
                     last_err = e
-                    self.log_message(f"Connect attempt {attempt}/2 failed: {e}")
+                    self.log_message(f"Connect attempt {attempt}/2 failed: {self._connection_error_reason(e)}")
                     try:
                         if self.ps_manager is not None:
                             self.ps_manager.disconnect()
@@ -753,22 +699,33 @@ class EisAnalysisTool:
                 raise last_err if last_err is not None else RuntimeError("Unknown connection error")
 
             serial = self.ps_manager.get_instrument_serial()
-            if self._is_bluetooth_instrument(selected):
-                self.connection_mode = "sensit_bt"
-                mode_label = "Sensit BT"
-            else:
-                self.connection_mode = "sensit_usb"
-                mode_label = "Sensit USB"
+            self.connection_mode = "sensit_usb"
+            mode_label = "Sensit USB"
             self.log_message(f"Connected to {self.ps_instrument.name} (Serial: {serial})")
             self.root.after(0, self._set_connected_ui, mode_label)
         except Exception as e:
-            self.log_message(f"PalmSens connection failed: {e}")
-            if "FT_DEVICE_NOT_OPENED" in str(e):
-                self.log_message("Hint: FTDI device found but could not be opened. Close other app instances and unload kernel FTDI serial drivers (ftdi_sio/usbserial), then reconnect USB.")
+            self.log_message(f"Connection failed: {self._connection_error_reason(e)}")
             self.ps_manager = None
             self.ps_instrument = None
             self.connection_mode = None
             self.root.after(0, self._set_disconnected_ui)
+
+    def _connection_error_reason(self, error):
+        """Return a short, user-facing reason for a connection failure."""
+        text = " ".join(str(error).split()).strip()
+        if not text:
+            return "the device could not be connected"
+
+        lower_text = text.lower()
+        if "did not properly respond" in lower_text or "failed because connected host has failed to respond" in lower_text or "did not respond" in lower_text:
+            return "the device did not respond"
+        if "ft_device_not_opened" in lower_text:
+            return "the USB device could not be opened"
+
+        reason = text.split("\n", 1)[0].strip()
+        if reason.startswith("(") and ":" in reason:
+            reason = reason.split(":", 1)[1].strip()
+        return reason or "the device could not be connected"
 
     def _describe_instrument(self, instrument):
         """Return a readable description for logs with best-effort address fields."""
